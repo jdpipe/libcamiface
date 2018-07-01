@@ -1,3 +1,11 @@
 *~
 src/mega_backend_info.h
 build
+src/*.a
+src/*.so.*
+src/*.so
+cscope.*
+demo/*-static
+demo/*_gige
+demo/*-mega
+demo/*-dc1394

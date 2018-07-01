@@ -66,10 +66,10 @@ extern "C" {
 #define _STDCALL
 #endif
 
-#if 1
-#define DPRINTF(...)
+#if 0
+# define MSG(...)
 #else
-#define DPRINTF(...) fprintf(stderr,__VA_ARGS__)
+# define MSG(FMT,...) fprintf(stderr,"%s:%d: " FMT "\n",__func__,__LINE__,##__VA_ARGS__)
 #endif
 
 #if defined(_LINUX) || defined(_QNX) || defined(__APPLE__)
@@ -632,10 +632,10 @@ void BACKEND_METHOD(cam_iface_startup)() {
   if (minor!=CAMIFACE_PROSIL_MINOR) {
     CAM_IFACE_THROW_ERROR("Prosilica library version mismatch");
   }
-  DPRINTF("libcamiface compiled with and loaded PvAPI version %d.%d\n",
+  MSG("libcamiface compiled with and loaded PvAPI version %d.%d",
           major,minor);
 #else
-  DPRINTF("libcamiface loaded PvAPI version %ld.%ld\n",
+  MSG("libcamiface loaded PvAPI version %ld.%ld",
           major,minor);
 #endif
 
@@ -657,7 +657,7 @@ void BACKEND_METHOD(cam_iface_startup)() {
   }
 
   if (ul_nc < PV_MAX_NUM_CAMERAS) {
-    DPRINTF("trying unreachable cameras...\n");
+    MSG("trying unreachable cameras...");
     ul_nc += PvCameraListUnreachable(&BACKEND_GLOBAL(camera_list)[ul_nc],
                                      PV_MAX_NUM_CAMERAS-ul_nc,
                                      NULL);
@@ -684,9 +684,32 @@ void BACKEND_METHOD(cam_iface_get_camera_info)(int device_number, Camwire_id *ou
 }
 
 
+
+typedef struct{
+  CameraPixelCoding coding;
+  const char *pixeldepthname;
+  const char *name;
+  unsigned depth;
+} ProsilicaCodingMapping;
+
+#define ENTRY(enum, name, depth) { CAM_IFACE_##enum, #name, #name, depth }
+
+/* other prosilica cameras might have more modes...? */
+ProsilicaCodingMapping prosilica_gige_pixel_coding_mapping[] = {
+  ENTRY(MONO8,        Mono8,        8),
+  ENTRY(MONO16,       Mono16,       16),
+  ENTRY(MONO12PACKED, Mono12Packed, 12),
+};
+
+#undef ENTRY
+
+#define PROSILICA_GIGE_N_PIXEL_CODINGS                      \
+((int)(   sizeof(prosilica_gige_pixel_coding_mapping)       \
+        / sizeof(prosilica_gige_pixel_coding_mapping[0])    )  )
+
 void BACKEND_METHOD(cam_iface_get_num_modes)(int device_number, int *num_modes) {
   CAM_IFACE_CHECK_DEVICE_NUMBER(device_number);
-  *num_modes = 1; // only one mode
+  *num_modes = PROSILICA_GIGE_N_PIXEL_CODINGS;
 }
 
 void BACKEND_METHOD(cam_iface_get_mode_string)(int device_number,
@@ -694,7 +717,19 @@ void BACKEND_METHOD(cam_iface_get_mode_string)(int device_number,
                                char* mode_string,
                                int mode_string_maxlen) {
   CAM_IFACE_CHECK_DEVICE_NUMBER(device_number);
-  cam_iface_snprintf(mode_string, mode_string_maxlen, "(Prosilica GigE default mode)");
+
+#if 0
+  /* can't get sensor pixels without connecting to camera */
+  unsigned long w,h;
+  PvAttrUint32Get(Camera, "SensorWidth", &w);
+  PvAttrUint32Get(Camera, "SensorHeight", &h);
+  cam_iface_snprintf(mode_string, mode_string_maxlen, "%u x %u: %s",
+    w, h, prosilica_gige_pixel_coding_mapping[mode_number].name
+  );
+#endif
+  cam_iface_snprintf(mode_string, mode_string_maxlen, "%s",
+    prosilica_gige_pixel_coding_mapping[mode_number].name
+  );
 }
 
 cam_iface_constructor_func_t BACKEND_METHOD(cam_iface_get_constructor_func)(int device_number) {
@@ -719,7 +754,14 @@ void CCprosil_CCprosil( CCprosil * ccntxt, int device_number, int NumImageBuffer
   ccntxt->inherited.vmt = (CamContext_functable*)&CCprosil_vmt;
 
   CAM_IFACE_CHECK_DEVICE_NUMBER(device_number);
-  if (mode_number!=0) { CAM_IFACE_THROW_ERROR("mode number not 0"); }
+
+  // if (mode_number!=0) { CAM_IFACE_THROW_ERROR("mode number not 0"); }
+  if (mode_number < 0
+    || mode_number >= PROSILICA_GIGE_N_PIXEL_CODINGS) {
+    BACKEND_GLOBAL(cam_iface_error) = -1;
+    CAM_IFACE_THROW_ERROR("invalid mode_number");
+    return;
+  }
 
   ccntxt->inherited.device_number = device_number;
   ccntxt->inherited.backend_extras = new cam_iface_backend_extras;
@@ -740,45 +782,46 @@ void CCprosil_CCprosil( CCprosil * ccntxt, int device_number, int NumImageBuffer
   CIPVCHK(PvAttrUint32Get(*handle_ptr,"FirmwareVerMinor",&FirmwareVerMinor));
   CIPVCHK(PvAttrUint32Get(*handle_ptr,"FirmwareVerBuild",&FirmwareVerBuild));
 
-  // DPRINTF("firmware %d %d %d\n",FirmwareVerMajor,FirmwareVerMinor,FirmwareVerBuild);
+  // MSG("firmware %d %d %d\n",FirmwareVerMajor,FirmwareVerMinor,FirmwareVerBuild);
 
   if ( ! ((FirmwareVerMajor >= 1) && (FirmwareVerMinor >= 24) ) ) {
     CAM_IFACE_THROW_ERROR("firmware too old - see http://www.prosilica.com/support/gige/ge_download.html");
   }
 
   const char *attr_names[] = {
-    "Width",
-    "ExposureValue",
-    "FrameStartTriggerMode",
-    "RegionX",
-    "FrameRate",
-    "PacketSize"
+    "Width"
+    ,"ExposureValue"
+    ,"FrameStartTriggerMode"
+    ,"RegionX"
+    ,"FrameRate"
+    ,"PacketSize"
+    ,"PixelFormat"
   };
   const int attr_names_size = sizeof(attr_names)/sizeof(const char *);
 
   tPvAttributeInfo attrInfo;
   for (int i=0;i<attr_names_size;i++) {
-    DPRINTF("%s\n",attr_names[i]);
+    MSG("%s",attr_names[i]);
     CIPVCHK(PvAttrInfo(*handle_ptr,attr_names[i],&attrInfo));
-    DPRINTF("     impact: %s\n",attrInfo.Impact);
-    DPRINTF("     category: %s\n",attrInfo.Category);
+    MSG("     impact: %s",attrInfo.Impact);
+    MSG("     category: %s",attrInfo.Category);
     if (attrInfo.Flags & ePvFlagRead) {
-      DPRINTF("       Read access is permitted\n");
+      MSG("       Read access is permitted");
     }
     if (attrInfo.Flags & ePvFlagWrite) {
-      DPRINTF("       Write access is permitted\n");
+      MSG("       Write access is permitted");
     }
     if (attrInfo.Flags & ePvFlagVolatile) {
-      DPRINTF("       The camera may change the value any time\n");
+      MSG("       The camera may change the value any time");
     }
     if (attrInfo.Flags & ePvFlagConst) {
-      DPRINTF("       Value is read only and never changes\n");
+      MSG("       Value is read only and never changes");
     }
   }
 
   // code to adjust packet size, taken from SampleViewer -- JP May 2009.
   if(!BACKEND_METHOD(cam_iface_have_error)()){
-        DPRINTF("Setting PacketSize automatically...\n");
+        MSG("Setting PacketSize automatically...");
     tPvUint32 lMaxSize = 8228;
     // get the last packet size set on the camera
     CIPVCHK(PvAttrUint32Get(*handle_ptr,"PacketSize",&lMaxSize));
@@ -788,14 +831,17 @@ void CCprosil_CCprosil( CCprosil * ccntxt, int device_number, int NumImageBuffer
 
   /*
   if (NumImageBuffers!=5) {
-    DPRINTF("forcing num_buffers to 5 for performance reasons\n"); // seems to work well - ADS 20061204
+    MSG("forcing num_buffers to 5 for performance reasons"); // seems to work well - ADS 20061204
     NumImageBuffers = 5;
   }
   */
 
-  // hard-coded mono8 for now...
-  ccntxt->inherited.depth = 8;
-  ccntxt->inherited.coding = CAM_IFACE_MONO8;
+
+  // modified now to handle multiple bit depths...
+  ccntxt->inherited.coding = prosilica_gige_pixel_coding_mapping[mode_number].coding;
+  ccntxt->inherited.depth = prosilica_gige_pixel_coding_mapping[mode_number].depth;
+  MSG("pixel depth will be '%s'",prosilica_gige_pixel_coding_mapping[mode_number].pixeldepthname);
+  CIPVCHK(PvAttrEnumSet(*handle_ptr,"PixelFormat",prosilica_gige_pixel_coding_mapping[mode_number].pixeldepthname));
 
   cam_iface_backend_extras* backend_extras = (cam_iface_backend_extras*)(ccntxt->inherited.backend_extras);
 
@@ -803,11 +849,13 @@ void CCprosil_CCprosil( CCprosil * ccntxt, int device_number, int NumImageBuffer
   CIPVCHK(PvAttrUint32Get(*handle_ptr,"TotalBytesPerFrame",&FrameSize));
   backend_extras->buf_size = FrameSize; // XXX should check for int overflow...
 
+  MSG("bytes per frame = %lu",FrameSize);
+
 #ifndef CIPROSIL_TIME_HOST
   tPvUint32 tsf;
   CIPVCHK(PvAttrUint32Get(*handle_ptr,"TimeStampFrequency",&tsf));
   backend_extras->timestamp_tick = 1.0/((double)tsf);
-  DPRINTF("tsf %lu = dt %g\n",tsf,backend_extras->timestamp_tick);
+  MSG("tsf %lu = dt %g",tsf,backend_extras->timestamp_tick);
 
 #endif // #ifndef CIPROSIL_TIME_HOST
 
@@ -844,7 +892,9 @@ void CCprosil_CCprosil( CCprosil * ccntxt, int device_number, int NumImageBuffer
   backend_extras->current_height = Height;  // XXX should check for int overflow...
   backend_extras->max_height = MaxHeight;  // XXX should check for int overflow...
 
-  backend_extras->malloced_buf_size = MaxWidth*MaxHeight;
+  backend_extras->malloced_buf_size = (MaxWidth*MaxHeight*ccntxt->inherited.depth)/8 + 3;
+
+  MSG("malloc = %d x %d x %d / 8 bytes = %d",MaxWidth,MaxHeight,ccntxt->inherited.depth,backend_extras->malloced_buf_size);
 
   if (NumImageBuffers>PV_MAX_NUM_BUFFERS) {
     CAM_IFACE_THROW_ERROR("requested too many buffers");
@@ -933,7 +983,7 @@ void CCprosil_get_num_camera_properties(CCprosil *ccntxt,
   unsigned long num_props_pv=0;
   CIPVCHK(PvAttrList(*handle_ptr,&attr_list,&num_props_pv));
   for (int i=0;i<num_props_pv;i++) {
-    DPRINTF("attr: %d %s\n",i,attr_list[i]);
+    MSG("attr: %d %s",i,attr_list[i]);
   }
   */
   *num_properties = PV_NUM_ATTR;
@@ -988,7 +1038,7 @@ void CCprosil_get_camera_property_info(CCprosil *ccntxt,
     /// XXX HACK!!!
     //info->max_value = mymax;
     info->max_value = 50000;
-    DPRINTF("WARNING: artificially setting max_value of shutter to 50000 in %s, %d\n",__FILE__,__LINE__);
+    MSG("WARNING: artificially setting max_value of shutter to 50000");
     info->is_scaled_quantity = 1;
     info->scaled_unit_name = "usec";
     info->scale_offset = 0;
@@ -1081,7 +1131,7 @@ void CCprosil_grab_next_frame_blocking( CCprosil *ccntxt, unsigned char *out_byt
   CHECK_CC(ccntxt);
   cam_iface_backend_extras* backend_extras = (cam_iface_backend_extras*)(ccntxt->inherited.backend_extras);
   CCprosil_grab_next_frame_blocking_with_stride(ccntxt,out_bytes,
-                                                  backend_extras->current_width,
+                                                  backend_extras->current_width * ccntxt->inherited.depth / 8	,
                                                   timeout);
 }
 
@@ -1114,11 +1164,16 @@ void CCprosil_grab_next_frame_blocking_with_stride( CCprosil *ccntxt,
   size_t wb = frame->Width;
   int height = frame->Height;
 
-  for (int row=0;row<height;row++) {
-    memcpy((void*)(out_bytes+row*stride0), //dest
-           (const void*)( ((intptr_t)(frame->ImageBuffer)) + row*wb),//src
-           wb);//size
+  unsigned stride = (wb * ccntxt->inherited.depth + 7) / 8;
+  if(stride0 == stride){ // same stride
+	MSG("stride0 = %u, stride = %u", stride0, stride);
+    for (int row=0;row<height;row++) {
+      memcpy((void*)(out_bytes+row*stride0), //dest
+         (const void*)( ((intptr_t)(frame->ImageBuffer)) + row*wb),//src
+         stride);//size
+    }
   }
+
   if (getenv("PROSILICA_BACKEND_DEBUG")!=NULL) {
     fprintf(stderr,"frame->FrameCount %lu\n",frame->FrameCount);
   }
@@ -1154,6 +1209,7 @@ void CCprosil_grab_next_frame_blocking_with_stride( CCprosil *ccntxt,
   if (getenv("PROSILICA_BACKEND_DEBUG")!=NULL) {
     fprintf(stderr,"backend_extras->last_framecount %ld\n",backend_extras->last_framecount);
   }
+
 #ifndef CIPROSIL_TIME_HOST
   u_int64_t ts_uint64;
   ts_uint64 = (((u_int64_t)(frame->TimestampHi))<<32) + (frame->TimestampLo);
@@ -1161,7 +1217,7 @@ void CCprosil_grab_next_frame_blocking_with_stride( CCprosil *ccntxt,
   dif64=ts_uint64-BACKEND_GLOBAL(prev_ts_uint64);
   BACKEND_GLOBAL(prev_ts_uint64) = ts_uint64;
 
-  DPRINTF("got it                         (ts %llu)    (diff %lld)!\n",ts_uint64,dif64);
+  MSG("got it                         (ts %lu)    (diff %ld)!",ts_uint64,dif64);
   backend_extras->last_timestamp = ts_uint64;
 #else // #ifndef CIPROSIL_TIME_HOST
   backend_extras->last_timestamp = ciprosil_floattime();
