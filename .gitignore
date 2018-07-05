@@ -9,3 +9,9 @@ demo/*-static
 demo/*_gige
 demo/*-mega
 demo/*-dc1394
+CMakeCache*
+*.cmake
+CMakeFiles
+Makefile
+libcamiface.pc
+install_manifest.txt

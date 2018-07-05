@@ -45,7 +45,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #endif
 
 #ifdef _WINDOWS
-#define u_int8_t unsigned char
+# ifndef uint8_t
+#  define uint8_t unsigned char
+# endif
 #endif
 
 #if defined(_LINUX) || defined(_QNX) || defined(__APPLE__)
@@ -66,22 +68,21 @@ extern "C" {
 #define _STDCALL
 #endif
 
-#if 0
+#if 1
 # define MSG(...)
 #else
 # define MSG(FMT,...) fprintf(stderr,"%s:%d: " FMT "\n",__func__,__LINE__,##__VA_ARGS__)
 #endif
 
 #if defined(_LINUX) || defined(_QNX) || defined(__APPLE__)
-void Sleep(unsigned int time)
-{
-    struct timespec t,r;
+void Sleep(unsigned int time){
+	struct timespec t,r;
 
-    t.tv_sec    = time / 1000;
-    t.tv_nsec   = (time % 1000) * 1000000;
+	t.tv_sec    = time / 1000;
+	t.tv_nsec   = (time % 1000) * 1000000;
 
-    while(nanosleep(&t,&r)==-1)
-        t = r;
+	while(nanosleep(&t,&r)==-1)
+		t = r;
 }
 #endif
 
@@ -100,46 +101,65 @@ struct CCprosil; // forward declaration
 
 // keep functable in sync across backends
 typedef struct {
-  cam_iface_constructor_func_t construct;
-  void (*destruct)(struct CamContext*);
+	cam_iface_constructor_func_t construct;
+	void (*destruct)(struct CamContext*);
 
-  void (*CCprosil)(struct CCprosil*,int,int,int,const char*);
-  void (*close)(struct CCprosil*);
-  void (*start_camera)(struct CCprosil*);
-  void (*stop_camera)(struct CCprosil*);
-  void (*get_num_camera_properties)(struct CCprosil*,int*);
-  void (*get_camera_property_info)(struct CCprosil*,
-                                   int,
-                                   CameraPropertyInfo*);
-  void (*get_camera_property)(struct CCprosil*,int,long*,int*);
-  void (*set_camera_property)(struct CCprosil*,int,long,int);
-  void (*grab_next_frame_blocking)(struct CCprosil*,
-                                   unsigned char*,
-                                   float);
-  void (*grab_next_frame_blocking_with_stride)(struct CCprosil*,
-                                               unsigned char*,
-                                               intptr_t,
-                                               float);
-  void (*point_next_frame_blocking)(struct CCprosil*,unsigned char**,float);
-  void (*unpoint_frame)(struct CCprosil*);
-  void (*get_last_timestamp)(struct CCprosil*,double*);
-  void (*get_last_framenumber)(struct CCprosil*,unsigned long*);
-  void (*get_num_trigger_modes)(struct CCprosil*,int*);
-  void (*get_trigger_mode_string)(struct CCprosil*,int,char*,int);
-  void (*get_trigger_mode_number)(struct CCprosil*,int*);
-  void (*set_trigger_mode_number)(struct CCprosil*,int);
-  void (*get_frame_roi)(struct CCprosil*,int*,int*,int*,int*);
-  void (*set_frame_roi)(struct CCprosil*,int,int,int,int);
-  void (*get_max_frame_size)(struct CCprosil*,int*,int*);
-  void (*get_buffer_size)(struct CCprosil*,int*);
-  void (*get_framerate)(struct CCprosil*,float*);
-  void (*set_framerate)(struct CCprosil*,float);
-  void (*get_num_framebuffers)(struct CCprosil*,int*);
-  void (*set_num_framebuffers)(struct CCprosil*,int);
+	void (*CCprosil)(struct CCprosil*,int,int,int,const char*);
+	void (*close)(struct CCprosil*);
+	void (*start_camera)(struct CCprosil*);
+	void (*stop_camera)(struct CCprosil*);
+	void (*get_num_camera_properties)(struct CCprosil*,int*);
+	void (*get_camera_property_info)(struct CCprosil*,
+		                             int,
+		                             CameraPropertyInfo*);
+	void (*get_camera_property)(struct CCprosil*,int,long*,int*);
+	void (*set_camera_property)(struct CCprosil*,int,long,int);
+	void (*grab_next_frame_blocking)(struct CCprosil*,
+		                             uint8_t *,
+		                             float);
+	void (*grab_next_frame_blocking_with_stride)(struct CCprosil*,
+		                                         uint8_t*,
+		                                         intptr_t,
+		                                         float);
+	void (*point_next_frame_blocking)(struct CCprosil*,uint8_t**,float);
+	void (*unpoint_frame)(struct CCprosil*);
+	void (*get_last_timestamp)(struct CCprosil*,double*);
+	void (*get_last_framenumber)(struct CCprosil*,unsigned long*);
+	void (*get_num_trigger_modes)(struct CCprosil*,int*);
+	void (*get_trigger_mode_string)(struct CCprosil*,int,char*,int);
+	void (*get_trigger_mode_number)(struct CCprosil*,int*);
+	void (*set_trigger_mode_number)(struct CCprosil*,int);
+	void (*get_frame_roi)(struct CCprosil*,int*,int*,int*,int*);
+	void (*set_frame_roi)(struct CCprosil*,int,int,int,int);
+	void (*get_max_frame_size)(struct CCprosil*,int*,int*);
+	void (*get_buffer_size)(struct CCprosil*,int*);
+	void (*get_framerate)(struct CCprosil*,float*);
+	void (*set_framerate)(struct CCprosil*,float);
+	void (*get_num_framebuffers)(struct CCprosil*,int*);
+	void (*set_num_framebuffers)(struct CCprosil*,int);
 } CCprosil_functable;
 
 typedef struct CCprosil {
-  CamContext inherited;
+	CamContext inherited;
+	int num_buffers;
+	int buf_size; // current buffer size (number of bytes)
+	unsigned long malloced_buf_size; // maximum buffer size (number of bytes)
+	int current_height;
+	intptr_t current_width;
+	int max_height;
+	int max_width;
+	tPvFrame** frames;
+	int frame_number_currently_waiting_for;
+	long last_framecount; // same type as Prosilica's FrameCount in struct tPvFrame
+	long frame_epoch;
+	double frame_epoch_start;
+#ifndef CIPROSIL_TIME_HOST
+	u_int64_t last_timestamp;
+	double timestamp_tick;
+#else
+	double last_timestamp;
+#endif // #ifndef CIPROSIL_TIME_HOST
+	int exposure_mode_number;
 } CCprosil;
 
 
@@ -159,13 +179,13 @@ void CCprosil_get_camera_property_info(struct CCprosil*,
 void CCprosil_get_camera_property(struct CCprosil*,int,long*,int*);
 void CCprosil_set_camera_property(struct CCprosil*,int,long,int);
 void CCprosil_grab_next_frame_blocking(struct CCprosil*,
-                              unsigned char*,
+                              uint8_t*,
                               float);
 void CCprosil_grab_next_frame_blocking_with_stride(struct CCprosil*,
-                                          unsigned char*,
+                                          uint8_t*,
                                           intptr_t,
                                           float);
-void CCprosil_point_next_frame_blocking(struct CCprosil*,unsigned char**,float);
+void CCprosil_point_next_frame_blocking(struct CCprosil*,uint8_t**,float);
 void CCprosil_unpoint_frame(struct CCprosil*);
 void CCprosil_get_last_timestamp(struct CCprosil*,double*);
 void CCprosil_get_last_framenumber(struct CCprosil*,unsigned long*);
@@ -183,34 +203,34 @@ void CCprosil_get_num_framebuffers(struct CCprosil*,int*);
 void CCprosil_set_num_framebuffers(struct CCprosil*,int);
 
 CCprosil_functable CCprosil_vmt = {
-  (cam_iface_constructor_func_t)CCprosil_construct,
-  (void (*)(CamContext*))delete_CCprosil,
-  CCprosil_CCprosil,
-  CCprosil_close,
-  CCprosil_start_camera,
-  CCprosil_stop_camera,
-  CCprosil_get_num_camera_properties,
-  CCprosil_get_camera_property_info,
-  CCprosil_get_camera_property,
-  CCprosil_set_camera_property,
-  CCprosil_grab_next_frame_blocking,
-  CCprosil_grab_next_frame_blocking_with_stride,
-  CCprosil_point_next_frame_blocking,
-  CCprosil_unpoint_frame,
-  CCprosil_get_last_timestamp,
-  CCprosil_get_last_framenumber,
-  CCprosil_get_num_trigger_modes,
-  CCprosil_get_trigger_mode_string,
-  CCprosil_get_trigger_mode_number,
-  CCprosil_set_trigger_mode_number,
-  CCprosil_get_frame_roi,
-  CCprosil_set_frame_roi,
-  CCprosil_get_max_frame_size,
-  CCprosil_get_buffer_size,
-  CCprosil_get_framerate,
-  CCprosil_set_framerate,
-  CCprosil_get_num_framebuffers,
-  CCprosil_set_num_framebuffers
+	(cam_iface_constructor_func_t)CCprosil_construct,
+	(void (*)(CamContext*))delete_CCprosil,
+	CCprosil_CCprosil,
+	CCprosil_close,
+	CCprosil_start_camera,
+	CCprosil_stop_camera,
+	CCprosil_get_num_camera_properties,
+	CCprosil_get_camera_property_info,
+	CCprosil_get_camera_property,
+	CCprosil_set_camera_property,
+	CCprosil_grab_next_frame_blocking,
+	CCprosil_grab_next_frame_blocking_with_stride,
+	CCprosil_point_next_frame_blocking,
+	CCprosil_unpoint_frame,
+	CCprosil_get_last_timestamp,
+	CCprosil_get_last_framenumber,
+	CCprosil_get_num_trigger_modes,
+	CCprosil_get_trigger_mode_string,
+	CCprosil_get_trigger_mode_number,
+	CCprosil_set_trigger_mode_number,
+	CCprosil_get_frame_roi,
+	CCprosil_set_frame_roi,
+	CCprosil_get_max_frame_size,
+	CCprosil_get_buffer_size,
+	CCprosil_get_framerate,
+	CCprosil_set_framerate,
+	CCprosil_get_num_framebuffers,
+	CCprosil_set_num_framebuffers
 };
 
 
@@ -220,37 +240,38 @@ CCprosil_functable CCprosil_vmt = {
 double ciprosil_floattime() {
 #ifdef _WIN32
 #if _MSC_VER == 1310
-  struct _timeb t;
-  _ftime(&t);
-  return (double)t.time + (double)t.millitm * (double)0.001;
+	struct _timeb t;
+	_ftime(&t);
+	return (double)t.time + (double)t.millitm * (double)0.001;
 #else
-  struct _timeb t;
-  if (_ftime_s(&t)==0) {
-    return (double)t.time + (double)t.millitm * (double)0.001;
-  }
-  else {
-    return 0.0;
-  }
+	struct _timeb t;
+	if(_ftime_s(&t)==0) {
+		return (double)t.time + (double)t.millitm * (double)0.001;
+	}else{
+		return 0.0;
+	}
 #endif
 #else
-  struct timeval t;
-  if (gettimeofday(&t, (struct timezone *)NULL) == 0)
-    return (double)t.tv_sec + t.tv_usec*0.000001;
-  else
-    return 0.0;
+	struct timeval t;
+	if (gettimeofday(&t, (struct timezone *)NULL) == 0)
+		return (double)t.tv_sec + t.tv_usec*0.000001;
+	else
+		return 0.0;
 #endif
 }
 
 #ifdef MEGA_BACKEND
-  #define BACKEND_GLOBAL(m) prosilica_gige_##m
+# define BACKEND_GLOBAL(m) prosilica_gige_##m
 #else
-  #define BACKEND_GLOBAL(m) m
+# define BACKEND_GLOBAL(m) m
 #endif
 
+
 /* globals -- allocate space */
-  u_int64_t BACKEND_GLOBAL(prev_ts_uint64); //tmp
+u_int64_t BACKEND_GLOBAL(prev_ts_uint64); //tmp
 
 cam_iface_thread_local int BACKEND_GLOBAL(cam_iface_error)=0;
+
 #define CAM_IFACE_MAX_ERROR_LEN 255
 cam_iface_thread_local char BACKEND_GLOBAL(cam_iface_error_string)[CAM_IFACE_MAX_ERROR_LEN];
 cam_iface_thread_local char BACKEND_GLOBAL(cam_iface_backend_string)[CAM_IFACE_MAX_ERROR_LEN];
@@ -265,32 +286,9 @@ static tPvCameraInfo BACKEND_GLOBAL(camera_list)[PV_MAX_NUM_CAMERAS];
 
 // circular buffer that takes advantage of 8-bit rollover
 tPvFrame* BACKEND_GLOBAL(frames_ready_list_cam0)[256];
-u_int8_t BACKEND_GLOBAL(frames_ready_cam0_write_idx)=0;
-u_int8_t BACKEND_GLOBAL(frames_ready_cam0_read_idx)=0;
-u_int8_t BACKEND_GLOBAL(frames_ready_cam0_num)=0;
-
-typedef struct cam_iface_backend_extras cam_iface_backend_extras;
-struct cam_iface_backend_extras {
-  int num_buffers;
-  int buf_size; // current buffer size (number of bytes)
-  unsigned long malloced_buf_size; // maximum buffer size (number of bytes)
-  int current_height;
-  intptr_t current_width;
-  int max_height;
-  int max_width;
-  tPvFrame** frames;
-  int frame_number_currently_waiting_for;
-  long last_framecount; // same type as Prosilica's FrameCount in struct tPvFrame
-  long frame_epoch;
-  double frame_epoch_start;
-#ifndef CIPROSIL_TIME_HOST
-  u_int64_t last_timestamp;
-  double timestamp_tick;
-#else
-  double last_timestamp;
-#endif // #ifndef CIPROSIL_TIME_HOST
-  int exposure_mode_number;
-};
+uint8_t BACKEND_GLOBAL(frames_ready_cam0_write_idx)=0;
+uint8_t BACKEND_GLOBAL(frames_ready_cam0_read_idx)=0;
+uint8_t BACKEND_GLOBAL(frames_ready_cam0_num)=0;
 
 #define PV_NUM_ATTR 2
 const char *BACKEND_GLOBAL(pv_attr_strings)[PV_NUM_ATTR] = {
@@ -300,7 +298,8 @@ const char *BACKEND_GLOBAL(pv_attr_strings)[PV_NUM_ATTR] = {
 #define PV_ATTR_GAIN 0
 #define PV_ATTR_SHUTTER 1
 
-  // from PvApi.h
+
+// from PvApi.h
 #define PV_ERROR_NUM 22
 const char *BACKEND_GLOBAL(pv_error_strings)[PV_ERROR_NUM] = {
   "No error",
@@ -328,46 +327,44 @@ const char *BACKEND_GLOBAL(pv_error_strings)[PV_ERROR_NUM] = {
 };
 
 #ifdef MEGA_BACKEND
-#define CAM_IFACE_ERROR_FORMAT(m)                                       \
-  cam_iface_snprintf(prosilica_gige_cam_iface_error_string,CAM_IFACE_MAX_ERROR_LEN,    \
-                     "%s (%d): %s\n",__FILE__,__LINE__,(m));
-#else
-#define CAM_IFACE_ERROR_FORMAT(m)                                       \
-  cam_iface_snprintf(cam_iface_error_string,CAM_IFACE_MAX_ERROR_LEN,    \
-                     "%s (%d): %s\n",__FILE__,__LINE__,(m));
-#endif
-
-#ifdef MEGA_BACKEND
+# define CAM_IFACE_ERROR_FORMAT(m) \
+	cam_iface_snprintf(prosilica_gige_cam_iface_error_string\
+		,CAM_IFACE_MAX_ERROR_LEN, "%s (%d): %s\n",__FILE__,__LINE__,(m)\
+	);
 #define CAM_IFACE_THROW_ERROR(m)                        \
   {                                                     \
     prosilica_gige_cam_iface_error = -1;                               \
     CAM_IFACE_ERROR_FORMAT((m));                        \
     return;                                             \
   }
-#else
-#define CAM_IFACE_THROW_ERROR(m)                        \
-  {                                                     \
-    cam_iface_error = -1;                               \
-    CAM_IFACE_ERROR_FORMAT((m));                        \
-    return;                                             \
-  }
-#endif
-
-#ifdef MEGA_BACKEND
 #define CAM_IFACE_THROW_ERRORV(m)                       \
   {                                                     \
     prosilica_gige_cam_iface_error = -1;                               \
     CAM_IFACE_ERROR_FORMAT((m));                        \
     return NULL;                                                \
   }
+
 #else
+
+# define CAM_IFACE_ERROR_FORMAT(m) \
+	cam_iface_snprintf(cam_iface_error_string,CAM_IFACE_MAX_ERROR_LEN,\
+		"%s (%d): %s\n",__FILE__,__LINE__,(m)\
+	);
+#define CAM_IFACE_THROW_ERROR(m)                        \
+  {                                                     \
+    cam_iface_error = -1;                               \
+    CAM_IFACE_ERROR_FORMAT((m));                        \
+    return;                                             \
+  }
 #define CAM_IFACE_THROW_ERRORV(m)                       \
   {                                                     \
     cam_iface_error = -1;                               \
     CAM_IFACE_ERROR_FORMAT((m));                        \
     return NULL;                                                \
   }
+
 #endif
+
 
 #define CHECK_CC(m)                                                     \
   if (!(m)) {                                                           \
@@ -528,9 +525,9 @@ const char *BACKEND_GLOBAL(pv_error_strings)[PV_ERROR_NUM] = {
   }
 #endif
 
-void _internal_start_streaming( CCprosil * ccntxt,
-                                tPvHandle* handle_ptr,
-                                cam_iface_backend_extras* backend_extras ) {
+void _internal_start_streaming( CCprosil * cam,
+                                tPvHandle* handle_ptr
+){
   // modeled after CFinderWindow::OnStart() in
   // in Prosilica's examples/SampleViewer/src/FinderWindow.cpp
   unsigned long lCapturing;
@@ -546,17 +543,17 @@ void _internal_start_streaming( CCprosil * ccntxt,
   if(!iBytesPerFrame) {
     CAM_IFACE_THROW_ERROR("incorrect frame size");
   }
-  backend_extras->buf_size = iBytesPerFrame;
-  if ((backend_extras->malloced_buf_size) < iBytesPerFrame) {
+  cam->buf_size = iBytesPerFrame;
+  if((cam->malloced_buf_size) < iBytesPerFrame) {
     CAM_IFACE_THROW_ERROR("buffer is larger than allocated memory");
   }
-  for (int i=0; i<backend_extras->num_buffers; i++) {
-    backend_extras->frames[i]->ImageBufferSize = backend_extras->buf_size;
+  for(int i=0; i<cam->num_buffers; i++) {
+    cam->frames[i]->ImageBufferSize = cam->buf_size;
   }
 
-  for (int i=0; i<backend_extras->num_buffers; i++) {
-    CIPVCHK(PvCaptureQueueFrame(*handle_ptr,backend_extras->frames[i],NULL));
-    BACKEND_GLOBAL(frames_ready_list_cam0)[BACKEND_GLOBAL(frames_ready_cam0_write_idx)] = backend_extras->frames[i];
+  for (int i=0; i<cam->num_buffers; i++) {
+    CIPVCHK(PvCaptureQueueFrame(*handle_ptr,cam->frames[i],NULL));
+    BACKEND_GLOBAL(frames_ready_list_cam0)[BACKEND_GLOBAL(frames_ready_cam0_write_idx)] = cam->frames[i];
     BACKEND_GLOBAL(frames_ready_cam0_write_idx)++;
     BACKEND_GLOBAL(frames_ready_cam0_num)++;
   }
@@ -564,9 +561,9 @@ void _internal_start_streaming( CCprosil * ccntxt,
   CIPVCHK(PvCommandRun(*handle_ptr,"AcquisitionStart"));
 }
 
-void _internal_stop_streaming( CCprosil * ccntxt,
-                               tPvHandle* handle_ptr,
-                               cam_iface_backend_extras* backend_extras ) {
+void _internal_stop_streaming( CCprosil * cam,
+                               tPvHandle* handle_ptr
+){
   // modeled after CFinderWindow::OnStop() in
   // in Prosilica's examples/SampleViewer/src/FinderWindow.cpp
   unsigned long lCapturing;
@@ -626,10 +623,10 @@ void BACKEND_METHOD(cam_iface_startup)() {
 
   PvVersion(&major,&minor);
 #if defined(CAMIFACE_PROSIL_MAJOR)
-  if (major!=CAMIFACE_PROSIL_MAJOR) {
+  if (major!=CAMIFACE_PROSIL_MAJOR){
     CAM_IFACE_THROW_ERROR("Prosilica library version mismatch");
   }
-  if (minor!=CAMIFACE_PROSIL_MINOR) {
+  if (minor!=CAMIFACE_PROSIL_MINOR){
     CAM_IFACE_THROW_ERROR("Prosilica library version mismatch");
   }
   MSG("libcamiface compiled with and loaded PvAPI version %d.%d",
@@ -649,7 +646,7 @@ void BACKEND_METHOD(cam_iface_startup)() {
   }
 
   // get list of reachable cameras
-  unsigned long     ul_nc, numCamerasAvail;
+  unsigned long ul_nc, numCamerasAvail;
   ul_nc = PvCameraList(BACKEND_GLOBAL(camera_list), PV_MAX_NUM_CAMERAS, &numCamerasAvail);
 
   if (ul_nc != numCamerasAvail) {
@@ -666,13 +663,16 @@ void BACKEND_METHOD(cam_iface_startup)() {
   BACKEND_GLOBAL(num_cameras) = (int)ul_nc; // cast to integer
 }
 
+
 void BACKEND_METHOD(cam_iface_shutdown)() {
   PvUnInitialize();
 }
 
+
 int BACKEND_METHOD(cam_iface_get_num_cameras)() {
   return BACKEND_GLOBAL(num_cameras);
 }
+
 
 void BACKEND_METHOD(cam_iface_get_camera_info)(int device_number, Camwire_id *out_camid) {
   CAM_IFACE_CHECK_DEVICE_NUMBER(device_number);
@@ -682,7 +682,6 @@ void BACKEND_METHOD(cam_iface_get_camera_info)(int device_number, Camwire_id *ou
   cam_iface_snprintf(out_camid->model, CAMWIRE_ID_MAX_CHARS, "%s", BACKEND_GLOBAL(camera_list)[device_number].DisplayName);
   cam_iface_snprintf(out_camid->chip, CAMWIRE_ID_MAX_CHARS, "%llXh", (long long unsigned int)BACKEND_GLOBAL(camera_list)[device_number].UniqueId);
 }
-
 
 
 typedef struct{
@@ -707,17 +706,18 @@ ProsilicaCodingMapping prosilica_gige_pixel_coding_mapping[] = {
 ((int)(   sizeof(prosilica_gige_pixel_coding_mapping)       \
         / sizeof(prosilica_gige_pixel_coding_mapping[0])    )  )
 
+
 void BACKEND_METHOD(cam_iface_get_num_modes)(int device_number, int *num_modes) {
   CAM_IFACE_CHECK_DEVICE_NUMBER(device_number);
   *num_modes = PROSILICA_GIGE_N_PIXEL_CODINGS;
 }
+
 
 void BACKEND_METHOD(cam_iface_get_mode_string)(int device_number,
                                int mode_number,
                                char* mode_string,
                                int mode_string_maxlen) {
   CAM_IFACE_CHECK_DEVICE_NUMBER(device_number);
-
 #if 0
   /* can't get sensor pixels without connecting to camera */
   unsigned long w,h;
@@ -732,253 +732,248 @@ void BACKEND_METHOD(cam_iface_get_mode_string)(int device_number,
   );
 }
 
+
 cam_iface_constructor_func_t BACKEND_METHOD(cam_iface_get_constructor_func)(int device_number) {
   return (CamContext* (*)(int, int, int, const char*))CCprosil_construct;
 }
 
+
 CCprosil* CCprosil_construct( int device_number, int NumImageBuffers,
-                                 int mode_number, const char *interface) {
-  CCprosil *ccntxt = NULL;
-  ccntxt = new CCprosil; // C++ equivalent to malloc
-  memset(ccntxt,0,sizeof(CCprosil));
-  CCprosil_CCprosil( ccntxt, device_number,NumImageBuffers,
-                     mode_number,interface);
-  return ccntxt;
+                                 int mode_number, const char *interface
+){
+  CCprosil *cam = NULL;
+  cam = new CCprosil; // C++ equivalent to malloc
+  memset(cam,0,sizeof(CCprosil));
+  CCprosil_CCprosil(cam, device_number,NumImageBuffers, mode_number,interface);
+  return cam;
 }
 
-void CCprosil_CCprosil( CCprosil * ccntxt, int device_number, int NumImageBuffers,
-                        int mode_number,const char *interface) {
 
-  // call parent
-  CamContext_CamContext((CamContext*)ccntxt,device_number,NumImageBuffers,mode_number,interface); // XXX cast error?
-  ccntxt->inherited.vmt = (CamContext_functable*)&CCprosil_vmt;
+void CCprosil_CCprosil(CCprosil * cam, int device_number, int NumImageBuffers,
+                        int mode_number,const char *interface
+){
+	// call parent
+	CamContext_CamContext((CamContext*)cam,device_number,NumImageBuffers,mode_number,interface); // XXX cast error?
+	cam->inherited.vmt = (CamContext_functable*)&CCprosil_vmt;
 
-  CAM_IFACE_CHECK_DEVICE_NUMBER(device_number);
+	CAM_IFACE_CHECK_DEVICE_NUMBER(device_number);
 
-  // if (mode_number!=0) { CAM_IFACE_THROW_ERROR("mode number not 0"); }
-  if (mode_number < 0
-    || mode_number >= PROSILICA_GIGE_N_PIXEL_CODINGS) {
-    BACKEND_GLOBAL(cam_iface_error) = -1;
-    CAM_IFACE_THROW_ERROR("invalid mode_number");
-    return;
-  }
+	if (mode_number < 0 || mode_number >= PROSILICA_GIGE_N_PIXEL_CODINGS){
+		BACKEND_GLOBAL(cam_iface_error) = -1;
+		CAM_IFACE_THROW_ERROR("invalid mode_number");
+		return;
+	}
 
-  ccntxt->inherited.device_number = device_number;
-  ccntxt->inherited.backend_extras = new cam_iface_backend_extras;
-  memset(ccntxt->inherited.backend_extras,0,sizeof(cam_iface_backend_extras));
+	cam->inherited.device_number = device_number;
+	cam->inherited.backend_extras = NULL;
 
-  tPvHandle* handle_ptr = new tPvHandle; // C++ equivalent to malloc
-  CIPVCHK(PvCameraOpen(BACKEND_GLOBAL(camera_list)[device_number].UniqueId,
-                        ePvAccessMaster,
-                        handle_ptr ));
-  ccntxt->inherited.cam = (void*)handle_ptr; // save pointer
+	tPvHandle* handle_ptr = new tPvHandle; // C++ equivalent to malloc
+	CIPVCHK(PvCameraOpen(BACKEND_GLOBAL(camera_list)[device_number].UniqueId,
+		                ePvAccessMaster,
+		                handle_ptr ));
+	cam->inherited.cam = (void*)handle_ptr; // save pointer
 
-  // Check firmware version
-  unsigned long FirmwareVerMajor = 0;
-  unsigned long FirmwareVerMinor = 0;
-  unsigned long FirmwareVerBuild = 0;
+	// Check firmware version
+	unsigned long FirmwareVerMajor = 0;
+	unsigned long FirmwareVerMinor = 0;
+	unsigned long FirmwareVerBuild = 0;
 
-  CIPVCHK(PvAttrUint32Get(*handle_ptr,"FirmwareVerMajor",&FirmwareVerMajor));
-  CIPVCHK(PvAttrUint32Get(*handle_ptr,"FirmwareVerMinor",&FirmwareVerMinor));
-  CIPVCHK(PvAttrUint32Get(*handle_ptr,"FirmwareVerBuild",&FirmwareVerBuild));
+	CIPVCHK(PvAttrUint32Get(*handle_ptr,"FirmwareVerMajor",&FirmwareVerMajor));
+	CIPVCHK(PvAttrUint32Get(*handle_ptr,"FirmwareVerMinor",&FirmwareVerMinor));
+	CIPVCHK(PvAttrUint32Get(*handle_ptr,"FirmwareVerBuild",&FirmwareVerBuild));
 
-  // MSG("firmware %d %d %d\n",FirmwareVerMajor,FirmwareVerMinor,FirmwareVerBuild);
+	// MSG("firmware %d %d %d\n",FirmwareVerMajor,FirmwareVerMinor,FirmwareVerBuild);
 
-  if ( ! ((FirmwareVerMajor >= 1) && (FirmwareVerMinor >= 24) ) ) {
-    CAM_IFACE_THROW_ERROR("firmware too old - see http://www.prosilica.com/support/gige/ge_download.html");
-  }
+	if ( ! ((FirmwareVerMajor >= 1) && (FirmwareVerMinor >= 24) ) ) {
+		CAM_IFACE_THROW_ERROR("firmware too old - see http://www.prosilica.com/support/gige/ge_download.html");
+	}
 
-  const char *attr_names[] = {
-    "Width"
-    ,"ExposureValue"
-    ,"FrameStartTriggerMode"
-    ,"RegionX"
-    ,"FrameRate"
-    ,"PacketSize"
-    ,"PixelFormat"
-  };
-  const int attr_names_size = sizeof(attr_names)/sizeof(const char *);
+	const char *attr_names[] = {
+		"Width"
+		,"ExposureValue"
+		,"FrameStartTriggerMode"
+		,"RegionX"
+		,"FrameRate"
+		,"PacketSize"
+		,"PixelFormat"
+	};
+	const int attr_names_size = sizeof(attr_names)/sizeof(const char *);
 
-  tPvAttributeInfo attrInfo;
-  for (int i=0;i<attr_names_size;i++) {
-    MSG("%s",attr_names[i]);
-    CIPVCHK(PvAttrInfo(*handle_ptr,attr_names[i],&attrInfo));
-    MSG("     impact: %s",attrInfo.Impact);
-    MSG("     category: %s",attrInfo.Category);
-    if (attrInfo.Flags & ePvFlagRead) {
-      MSG("       Read access is permitted");
-    }
-    if (attrInfo.Flags & ePvFlagWrite) {
-      MSG("       Write access is permitted");
-    }
-    if (attrInfo.Flags & ePvFlagVolatile) {
-      MSG("       The camera may change the value any time");
-    }
-    if (attrInfo.Flags & ePvFlagConst) {
-      MSG("       Value is read only and never changes");
-    }
-  }
+	tPvAttributeInfo attrInfo;
+	for(int i=0;i<attr_names_size;i++) {
+		MSG("%s",attr_names[i]);
+		CIPVCHK(PvAttrInfo(*handle_ptr,attr_names[i],&attrInfo));
+		MSG("     impact: %s",attrInfo.Impact);
+		MSG("     category: %s",attrInfo.Category);
+		if(attrInfo.Flags & ePvFlagRead) {
+			MSG("       Read access is permitted");
+		}
+		if(attrInfo.Flags & ePvFlagWrite) {
+			MSG("       Write access is permitted");
+		}
+		if(attrInfo.Flags & ePvFlagVolatile) {
+			MSG("       The camera may change the value any time");
+		}
+		if(attrInfo.Flags & ePvFlagConst) {
+			MSG("       Value is read only and never changes");
+		}
+	}
 
-  // code to adjust packet size, taken from SampleViewer -- JP May 2009.
-  if(!BACKEND_METHOD(cam_iface_have_error)()){
-        MSG("Setting PacketSize automatically...");
-    tPvUint32 lMaxSize = 8228;
-    // get the last packet size set on the camera
-    CIPVCHK(PvAttrUint32Get(*handle_ptr,"PacketSize",&lMaxSize));
-    // adjust the packet size according to the current network capacity
-    CIPVCHK(PvCaptureAdjustPacketSize(*handle_ptr,lMaxSize));
-  }
+	// code to adjust packet size, taken from SampleViewer -- JP May 2009.
+	if(!BACKEND_METHOD(cam_iface_have_error)()){
+		MSG("Setting PacketSize automatically...");
+		tPvUint32 lMaxSize = 8228;
+		// get the last packet size set on the camera
+		CIPVCHK(PvAttrUint32Get(*handle_ptr,"PacketSize",&lMaxSize));
+		// adjust the packet size according to the current network capacity
+		CIPVCHK(PvCaptureAdjustPacketSize(*handle_ptr,lMaxSize));
+	}
 
-  /*
-  if (NumImageBuffers!=5) {
-    MSG("forcing num_buffers to 5 for performance reasons"); // seems to work well - ADS 20061204
-    NumImageBuffers = 5;
-  }
-  */
+	/*
+	if (NumImageBuffers!=5) {
+	MSG("forcing num_buffers to 5 for performance reasons"); // seems to work well - ADS 20061204
+	NumImageBuffers = 5;
+	}
+	*/
 
+	// modified now to handle multiple bit depths...
+	cam->inherited.coding = prosilica_gige_pixel_coding_mapping[mode_number].coding;
+	cam->inherited.depth = prosilica_gige_pixel_coding_mapping[mode_number].depth;
+	MSG("pixel depth will be '%s'",prosilica_gige_pixel_coding_mapping[mode_number].pixeldepthname);
+	CIPVCHK(PvAttrEnumSet(*handle_ptr,"PixelFormat",prosilica_gige_pixel_coding_mapping[mode_number].pixeldepthname));
 
-  // modified now to handle multiple bit depths...
-  ccntxt->inherited.coding = prosilica_gige_pixel_coding_mapping[mode_number].coding;
-  ccntxt->inherited.depth = prosilica_gige_pixel_coding_mapping[mode_number].depth;
-  MSG("pixel depth will be '%s'",prosilica_gige_pixel_coding_mapping[mode_number].pixeldepthname);
-  CIPVCHK(PvAttrEnumSet(*handle_ptr,"PixelFormat",prosilica_gige_pixel_coding_mapping[mode_number].pixeldepthname));
+	unsigned long FrameSize = 0;
+	CIPVCHK(PvAttrUint32Get(*handle_ptr,"TotalBytesPerFrame",&FrameSize));
+	cam->buf_size = FrameSize; // XXX should check for int overflow...
 
-  cam_iface_backend_extras* backend_extras = (cam_iface_backend_extras*)(ccntxt->inherited.backend_extras);
-
-  unsigned long FrameSize = 0;
-  CIPVCHK(PvAttrUint32Get(*handle_ptr,"TotalBytesPerFrame",&FrameSize));
-  backend_extras->buf_size = FrameSize; // XXX should check for int overflow...
-
-  MSG("bytes per frame = %lu",FrameSize);
+	MSG("bytes per frame = %lu",FrameSize);
 
 #ifndef CIPROSIL_TIME_HOST
-  tPvUint32 tsf;
-  CIPVCHK(PvAttrUint32Get(*handle_ptr,"TimeStampFrequency",&tsf));
-  backend_extras->timestamp_tick = 1.0/((double)tsf);
-  MSG("tsf %lu = dt %g",tsf,backend_extras->timestamp_tick);
-
+	tPvUint32 tsf;
+	CIPVCHK(PvAttrUint32Get(*handle_ptr,"TimeStampFrequency",&tsf));
+	cam->timestamp_tick = 1.0/((double)tsf);
+	MSG("tsf %lu = dt %g",tsf,cam->timestamp_tick);
 #endif // #ifndef CIPROSIL_TIME_HOST
 
-  CCprosil_set_trigger_mode_number( ccntxt, 0 ); // set to freerun
+	CCprosil_set_trigger_mode_number( cam, 0 ); // set to freerun
 
-  /*
-  char buf[PV_MAX_ENUM_LEN];
-  unsigned long enum_size;
-  CIPVCHK(PvAttrEnumGet(*handle_ptr,"ExposureMode",buf,PV_MAX_ENUM_LEN,&enum_size));
-  fprintf(stderr,"ExposureMode enum: %s\n",buf);
+	/*
+	char buf[PV_MAX_ENUM_LEN];
+	unsigned long enum_size;
+	CIPVCHK(PvAttrEnumGet(*handle_ptr,"ExposureMode",buf,PV_MAX_ENUM_LEN,&enum_size));
+	fprintf(stderr,"ExposureMode enum: %s\n",buf);
 
-  if (strncmp(buf,"FreeRun",enum_size)==0) {
-    backend_extras->exposure_mode_number=0;
-  } else if (strncmp(buf,"Manual",enum_size)==0) {
-    backend_extras->exposure_mode_number=1;
-  } else {
-    fprintf(stderr,"ExposureMode enum: %s\n",buf);
-    CAM_IFACE_THROW_ERROR("unknown ExposureMode enum");
-  }
-  */
+	if (strncmp(buf,"FreeRun",enum_size)==0) {
+	cam->exposure_mode_number=0;
+	} else if (strncmp(buf,"Manual",enum_size)==0) {
+	cam->exposure_mode_number=1;
+	} else {
+	fprintf(stderr,"ExposureMode enum: %s\n",buf);
+	CAM_IFACE_THROW_ERROR("unknown ExposureMode enum");
+	}
+	*/
 
-  tPvUint32 MinWidth,MaxWidth,Width;
-  CIPVCHK(PvAttrRangeUint32(*handle_ptr,"Width",&MinWidth,&MaxWidth));
-  CIPVCHK(PvAttrUint32Get(*handle_ptr,"Width",&Width));
-  backend_extras->current_width = Width;
-  backend_extras->max_width = MaxWidth;  // XXX should check for int overflow...
-  backend_extras->frame_epoch = 0;
-  backend_extras->frame_epoch_start = ciprosil_floattime();
-  backend_extras->last_framecount = 0;
+	tPvUint32 MinWidth,MaxWidth,Width;
+	CIPVCHK(PvAttrRangeUint32(*handle_ptr,"Width",&MinWidth,&MaxWidth));
+	CIPVCHK(PvAttrUint32Get(*handle_ptr,"Width",&Width));
+	cam->current_width = Width;
+	cam->max_width = MaxWidth;  // XXX should check for int overflow...
+	cam->frame_epoch = 0;
+	cam->frame_epoch_start = ciprosil_floattime();
+	cam->last_framecount = 0;
 
-  tPvUint32 MinHeight,MaxHeight,Height;
-  CIPVCHK(PvAttrRangeUint32(*handle_ptr,"Height",&MinHeight,&MaxHeight));
-  CIPVCHK(PvAttrUint32Get(*handle_ptr,"Height",&Height));
-  backend_extras->current_height = Height;  // XXX should check for int overflow...
-  backend_extras->max_height = MaxHeight;  // XXX should check for int overflow...
+	tPvUint32 MinHeight,MaxHeight,Height;
+	CIPVCHK(PvAttrRangeUint32(*handle_ptr,"Height",&MinHeight,&MaxHeight));
+	CIPVCHK(PvAttrUint32Get(*handle_ptr,"Height",&Height));
+	cam->current_height = Height;  // XXX should check for int overflow...
+	cam->max_height = MaxHeight;  // XXX should check for int overflow...
 
-  backend_extras->malloced_buf_size = (MaxWidth*MaxHeight*ccntxt->inherited.depth)/8 + 3;
+	cam->malloced_buf_size = (MaxWidth*MaxHeight*cam->inherited.depth + 7)/8;
 
-  MSG("malloc = %d x %d x %d / 8 bytes = %d",MaxWidth,MaxHeight,ccntxt->inherited.depth,backend_extras->malloced_buf_size);
+	MSG("malloc = %d x %d x %d / 8 bytes = %d",MaxWidth,MaxHeight,cam->inherited.depth,cam->malloced_buf_size);
 
-  if (NumImageBuffers>PV_MAX_NUM_BUFFERS) {
-    CAM_IFACE_THROW_ERROR("requested too many buffers");
-  }
+	if(NumImageBuffers>PV_MAX_NUM_BUFFERS) {
+		CAM_IFACE_THROW_ERROR("requested too many buffers");
+	}
 
-  // allocate image buffers
-  backend_extras->num_buffers = NumImageBuffers;
-  backend_extras->frames = (tPvFrame**)malloc( NumImageBuffers*sizeof(tPvFrame*) );
-  if (backend_extras->frames == NULL) {CAM_IFACE_THROW_ERROR("could not alloc frames");}
+	// allocate image buffers
+	cam->num_buffers = NumImageBuffers;
+	cam->frames = (tPvFrame**)malloc( NumImageBuffers*sizeof(tPvFrame*) );
+	if(cam->frames == NULL){
+		CAM_IFACE_THROW_ERROR("could not alloc frames");
+	}
 
-  for (int i=0; i<NumImageBuffers; i++) {
-    backend_extras->frames[i] = NULL;
-  }
-  for (int i=0; i<NumImageBuffers; i++) {
-    backend_extras->frames[i] = new tPvFrame;
-    if (backend_extras->frames[i] == NULL) {CAM_IFACE_THROW_ERROR("could not alloc frames");}
-    backend_extras->frames[i]->ImageBuffer = malloc(backend_extras->malloced_buf_size);
-    if (backend_extras->frames[i]->ImageBuffer == NULL) {CAM_IFACE_THROW_ERROR("could not alloc buffers");}
-    backend_extras->frames[i]->ImageBufferSize = backend_extras->buf_size;
-    backend_extras->frames[i]->AncillaryBuffer = NULL;
-    backend_extras->frames[i]->AncillaryBufferSize = 0;
-    backend_extras->frames[i]->Context[0] = (void*)i;
-  }
-  backend_extras->frame_number_currently_waiting_for=0; // first frame first
+	for (int i=0; i<NumImageBuffers; i++) {
+		cam->frames[i] = NULL;
+	}
+	for (int i=0; i<NumImageBuffers; i++) {
+		cam->frames[i] = new tPvFrame;
+		if (cam->frames[i] == NULL) {CAM_IFACE_THROW_ERROR("could not alloc frames");}
+		cam->frames[i]->ImageBuffer = malloc(cam->malloced_buf_size);
+		if (cam->frames[i]->ImageBuffer == NULL) {CAM_IFACE_THROW_ERROR("could not alloc buffers");}
+		cam->frames[i]->ImageBufferSize = cam->buf_size;
+		cam->frames[i]->AncillaryBuffer = NULL;
+		cam->frames[i]->AncillaryBufferSize = 0;
+		cam->frames[i]->Context[0] = (void*)i;
+	}
+	cam->frame_number_currently_waiting_for=0; // first frame first
 }
 
-void delete_CCprosil(CCprosil *ccntxt) {
-  CCprosil_close(ccntxt);
-  delete ccntxt;
-  ccntxt = (CCprosil*)NULL;
+
+void delete_CCprosil(CCprosil *cam) {
+  CCprosil_close(cam);
+  delete cam;
+  cam = (CCprosil*)NULL;
 }
 
-void CCprosil_close(CCprosil *ccntxt) {
-  if (!ccntxt) {CAM_IFACE_THROW_ERROR("no CCprosil specified (NULL argument)");}
-  tPvHandle* handle_ptr = (tPvHandle*)ccntxt->inherited.cam;
 
-  cam_iface_backend_extras* backend_extras = (cam_iface_backend_extras*)(ccntxt->inherited.backend_extras);
+void CCprosil_close(CCprosil *cam) {
+  if (!cam) {CAM_IFACE_THROW_ERROR("no CCprosil specified (NULL argument)");}
+  tPvHandle* handle_ptr = (tPvHandle*)cam->inherited.cam;
 
-  _internal_stop_streaming(ccntxt,handle_ptr,backend_extras);INTERNAL_CHK();
+  _internal_stop_streaming(cam,handle_ptr);INTERNAL_CHK();
 
-  if (backend_extras!=NULL) {
-    if (backend_extras->frames!=NULL) {
+    if (cam->frames!=NULL) {
 
       //CIPVCHK(PvCaptureQueueClear(*handle_ptr));
       CIPVCHK(PvCaptureEnd(*handle_ptr));
 
-      for (int i=0; i<(backend_extras->num_buffers); i++) {
-        if (backend_extras->frames[i] != NULL) {
-          if (backend_extras->frames[i]->ImageBuffer != NULL) {
-            free(backend_extras->frames[i]->ImageBuffer);
-            backend_extras->frames[i]->ImageBuffer = (void*)NULL;
+      for (int i=0; i<(cam->num_buffers); i++) {
+        if (cam->frames[i] != NULL) {
+          if (cam->frames[i]->ImageBuffer != NULL) {
+            free(cam->frames[i]->ImageBuffer);
+            cam->frames[i]->ImageBuffer = (void*)NULL;
           }
-          delete backend_extras->frames[i];
+          delete cam->frames[i];
         }
       }
-      free(backend_extras->frames);
-    }
-    delete backend_extras;
-    ccntxt->inherited.backend_extras = (void*)NULL;
+      free(cam->frames);
   }
 
   delete handle_ptr;
-  ccntxt->inherited.cam = (void*)NULL;
+  cam->inherited.cam = (void*)NULL;
 }
 
-void CCprosil_start_camera( CCprosil *ccntxt ) {
-  CHECK_CC(ccntxt);
-  tPvHandle* handle_ptr = (tPvHandle*)ccntxt->inherited.cam;
-  cam_iface_backend_extras* backend_extras = (cam_iface_backend_extras*)(ccntxt->inherited.backend_extras);
-  _internal_start_streaming(ccntxt,handle_ptr,backend_extras);INTERNAL_CHK();
+
+void CCprosil_start_camera( CCprosil *cam ) {
+  CHECK_CC(cam);
+  tPvHandle* handle_ptr = (tPvHandle*)cam->inherited.cam;
+  _internal_start_streaming(cam,handle_ptr);INTERNAL_CHK();
 }
 
-void CCprosil_stop_camera( CCprosil *ccntxt ) {
-  CHECK_CC(ccntxt);
-  tPvHandle* handle_ptr = (tPvHandle*)ccntxt->inherited.cam;
-  cam_iface_backend_extras* backend_extras = (cam_iface_backend_extras*)(ccntxt->inherited.backend_extras);
-  _internal_stop_streaming(ccntxt,handle_ptr,backend_extras);INTERNAL_CHK();
+
+void CCprosil_stop_camera( CCprosil *cam ) {
+  CHECK_CC(cam);
+  tPvHandle* handle_ptr = (tPvHandle*)cam->inherited.cam;
+  _internal_stop_streaming(cam,handle_ptr);INTERNAL_CHK();
 }
 
-void CCprosil_get_num_camera_properties(CCprosil *ccntxt,
+
+void CCprosil_get_num_camera_properties(CCprosil *cam,
                                           int* num_properties) {
-  CHECK_CC(ccntxt);
+  CHECK_CC(cam);
   /*
-  tPvHandle* handle_ptr = (tPvHandle*)ccntxt->inherited.cam;
+  tPvHandle* handle_ptr = (tPvHandle*)cam->inherited.cam;
   tPvAttrListPtr attr_list;
   unsigned long num_props_pv=0;
   CIPVCHK(PvAttrList(*handle_ptr,&attr_list,&num_props_pv));
@@ -989,75 +984,77 @@ void CCprosil_get_num_camera_properties(CCprosil *ccntxt,
   *num_properties = PV_NUM_ATTR;
 }
 
-void CCprosil_get_camera_property_info(CCprosil *ccntxt,
+
+void CCprosil_get_camera_property_info(CCprosil *cam,
                                          int property_number,
                                          CameraPropertyInfo *info) {
-  CHECK_CC(ccntxt);
-  tPvHandle* handle_ptr = (tPvHandle*)ccntxt->inherited.cam;
+	CHECK_CC(cam);
+	tPvHandle* handle_ptr = (tPvHandle*)cam->inherited.cam;
 
-  if (info==NULL) {
-    CAM_IFACE_THROW_ERROR("no info argument specified (NULL argument)");
-  }
+	if (info==NULL) {
+		CAM_IFACE_THROW_ERROR("no info argument specified (NULL argument)");
+	}
 
-  info->is_present = 1;
+	info->is_present = 1;
 
-  info->min_value = 0;
-  //info->max_value = min(MAX_LONG,MAX_UINT32);
-  info->max_value = 0x7FFFFFFF;
+	info->min_value = 0;
+	//info->max_value = min(MAX_LONG,MAX_UINT32);
+	info->max_value = 0x7FFFFFFF;
 
-  info->has_auto_mode = 1;
-  info->has_manual_mode = 1;
+	info->has_auto_mode = 1;
+	info->has_manual_mode = 1;
 
-  info->is_scaled_quantity = 0;
+	info->is_scaled_quantity = 0;
 
-  info->original_value = 0;
+	info->original_value = 0;
 
-  info->available = 1;
-  info->readout_capable = 1;
-  info->on_off_capable = 0;
+	info->available = 1;
+	info->readout_capable = 1;
+	info->on_off_capable = 0;
 
-  info->absolute_capable = 0;
-  info->absolute_control_mode = 0;
-  info->absolute_min_value = 0.0;
-  info->absolute_max_value = 0.0;
+	info->absolute_capable = 0;
+	info->absolute_control_mode = 0;
+	info->absolute_min_value = 0.0;
+	info->absolute_max_value = 0.0;
 
-  tPvUint32 mymin,mymax;
+	tPvUint32 mymin,mymax;
 
-  switch (property_number) {
-  case PV_ATTR_GAIN:
-    info->name = "gain";
-    info->has_auto_mode = 0;
-    CIPVCHK(PvAttrRangeUint32(*handle_ptr,"GainValue",&mymin,&mymax));
-    info->min_value = mymin;
-    info->max_value = mymax;
-    break;
-  case PV_ATTR_SHUTTER:
-    info->name = "shutter";
-    CIPVCHK(PvAttrRangeUint32(*handle_ptr,"ExposureValue",&mymin,&mymax));
-    info->min_value = mymin;
-    /// XXX HACK!!!
-    //info->max_value = mymax;
-    info->max_value = 50000;
-    MSG("WARNING: artificially setting max_value of shutter to 50000");
-    info->is_scaled_quantity = 1;
-    info->scaled_unit_name = "usec";
-    info->scale_offset = 0;
-    info->scale_gain = 1e-3; // convert from microsecond to millisecond
-    break;
-  default:
-    CAM_IFACE_THROW_ERROR("invalid property number");
-    break;
-  }
+	switch(property_number){
+	case PV_ATTR_GAIN:
+		info->name = "gain";
+		info->has_auto_mode = 0;
+		CIPVCHK(PvAttrRangeUint32(*handle_ptr,"GainValue",&mymin,&mymax));
+		info->min_value = mymin;
+		info->max_value = mymax;
+		break;
+	case PV_ATTR_SHUTTER:
+		info->name = "shutter";
+		CIPVCHK(PvAttrRangeUint32(*handle_ptr,"ExposureValue",&mymin,&mymax));
+		info->min_value = mymin;
+		/// XXX HACK!!!
+		//info->max_value = mymax;
+		info->max_value = 50000;
+		MSG("WARNING: artificially setting max_value of shutter to 50000");
+		info->is_scaled_quantity = 1;
+		info->scaled_unit_name = "usec";
+		info->scale_offset = 0;
+		info->scale_gain = 1e-3; // convert from microsecond to millisecond
+		break;
+	default:
+		CAM_IFACE_THROW_ERROR("invalid property number");
+		break;
+	}
 
-  return;
+	return;
 }
 
-void CCprosil_get_camera_property(CCprosil *ccntxt,
+
+void CCprosil_get_camera_property(CCprosil *cam,
                                     int property_number,
                                     long* Value,
                                     int* Auto ) {
-  CHECK_CC(ccntxt);
-  tPvHandle* handle_ptr = (tPvHandle*)ccntxt->inherited.cam;
+  CHECK_CC(cam);
+  tPvHandle* handle_ptr = (tPvHandle*)cam->inherited.cam;
 
   tPvUint32 value;
   char buf[PV_MAX_ENUM_LEN];
@@ -1095,12 +1092,13 @@ void CCprosil_get_camera_property(CCprosil *ccntxt,
   return;
 }
 
-void CCprosil_set_camera_property(CCprosil *ccntxt,
+
+void CCprosil_set_camera_property(CCprosil *cam,
                                     int property_number,
                                     long Value,
                                     int Auto ) {
-  CHECK_CC(ccntxt);
-  tPvHandle* handle_ptr = (tPvHandle*)ccntxt->inherited.cam;
+  CHECK_CC(cam);
+  tPvHandle* handle_ptr = (tPvHandle*)cam->inherited.cam;
   const char* mode_str=NULL;
   tPvUint32 value = Value;
 
@@ -1127,168 +1125,177 @@ void CCprosil_set_camera_property(CCprosil *ccntxt,
   return;
 }
 
-void CCprosil_grab_next_frame_blocking( CCprosil *ccntxt, unsigned char *out_bytes, float timeout) {
-  CHECK_CC(ccntxt);
-  cam_iface_backend_extras* backend_extras = (cam_iface_backend_extras*)(ccntxt->inherited.backend_extras);
-  CCprosil_grab_next_frame_blocking_with_stride(ccntxt,out_bytes,
-                                                  backend_extras->current_width * ccntxt->inherited.depth / 8	,
-                                                  timeout);
+
+void CCprosil_grab_next_frame_blocking(CCprosil *cam
+		, uint8_t *out_bytes, float timeout
+){
+	CHECK_CC(cam);
+	CCprosil_grab_next_frame_blocking_with_stride(cam, out_bytes
+		, cam->current_width * cam->inherited.depth / 8,timeout
+	);
 }
 
-void CCprosil_grab_next_frame_blocking_with_stride( CCprosil *ccntxt,
-                                                      unsigned char *out_bytes,
-                                                      intptr_t stride0,
-                                                      float timeout ) {
-  CHECK_CC(ccntxt);
-  tPvHandle* handle_ptr = (tPvHandle*)ccntxt->inherited.cam;
-  tPvFrame* frame;
-  cam_iface_backend_extras* backend_extras = (cam_iface_backend_extras*)(ccntxt->inherited.backend_extras);
 
-  unsigned long pvTimeout;
-  double now;
-  bool recent_rollover;
+void CCprosil_grab_next_frame_blocking_with_stride( CCprosil *cam
+		,uint8_t *out_bytes,intptr_t stride0,float timeout
+){
+	CHECK_CC(cam);
+	tPvHandle* handle_ptr = (tPvHandle*)cam->inherited.cam;
+	tPvFrame* frame;
+	unsigned long pvTimeout;
+	double now;
+	bool recent_rollover;
 
-  if (timeout < 0)
-    pvTimeout = PVINFINITE;
-  else
-    pvTimeout = (unsigned long)ceilf(timeout*1000.0f); // convert to msec
+	if(timeout < 0){
+		pvTimeout = PVINFINITE;
+	}else{
+		pvTimeout = (unsigned long)ceilf(timeout*1000.0f); // convert to msec
+	}
 
-  frame = BACKEND_GLOBAL(frames_ready_list_cam0)[BACKEND_GLOBAL(frames_ready_cam0_read_idx)];
-  if (frame==NULL) CAM_IFACE_THROW_ERROR("internal cam_iface error: frame not allocated");
+	frame = BACKEND_GLOBAL(frames_ready_list_cam0)[BACKEND_GLOBAL(frames_ready_cam0_read_idx)];
 
-  CIPVCHK(PvCaptureWaitForFrameDone(*handle_ptr,frame,pvTimeout));
+	if (frame==NULL) CAM_IFACE_THROW_ERROR("internal cam_iface error: frame not allocated");
 
-  BACKEND_GLOBAL(frames_ready_cam0_read_idx)++;
-  BACKEND_GLOBAL(frames_ready_cam0_num)--;
+	CIPVCHK(PvCaptureWaitForFrameDone(*handle_ptr,frame,pvTimeout));
 
-  size_t wb = frame->Width;
-  int height = frame->Height;
+	BACKEND_GLOBAL(frames_ready_cam0_read_idx)++;
+	BACKEND_GLOBAL(frames_ready_cam0_num)--;
 
-  unsigned stride = (wb * ccntxt->inherited.depth + 7) / 8;
-  if(stride0 == stride){ // same stride
-	MSG("stride0 = %u, stride = %u", stride0, stride);
-    for (int row=0;row<height;row++) {
-      memcpy((void*)(out_bytes+row*stride0), //dest
-         (const void*)( ((intptr_t)(frame->ImageBuffer)) + row*wb),//src
-         stride);//size
-    }
-  }
+	size_t wb = frame->Width;
+	int height = frame->Height;
 
-  if (getenv("PROSILICA_BACKEND_DEBUG")!=NULL) {
-    fprintf(stderr,"frame->FrameCount %lu\n",frame->FrameCount);
-  }
+	unsigned stride = (wb * cam->inherited.depth + 7) / 8;
+	if(stride0 == stride){ // same stride
+		MSG("stride0 = %u, stride = %u", stride0, stride);
+		for (int row=0;row<height;row++) {
+			memcpy((void*)(
+				out_bytes+row*stride0), //dest
+				(const void*)( ((intptr_t)(frame->ImageBuffer)) + row*wb),//src
+				stride //size
+			);
+		}
+	}
 
-  now = ciprosil_floattime();
-  recent_rollover = (now - (backend_extras->frame_epoch_start) <= 30.0);
+	if (getenv("PROSILICA_BACKEND_DEBUG")!=NULL) {
+		fprintf(stderr,"frame->FrameCount %lu\n",frame->FrameCount);
+	}
 
-  // FrameCount can rollover, but we don't want that
-  if ( ((backend_extras->last_framecount-1)%(long)(0xFFFF)) > (long)0xFF00) {
-    if ( ((long)frame->FrameCount) < (long)0xFF00 ) {
-      if (!recent_rollover) {
-        // wait 30 seconds before allowing rollover again
-        backend_extras->frame_epoch++;
-        backend_extras->frame_epoch_start = now;
-      }
-    }
-  }
+	now = ciprosil_floattime();
+	recent_rollover = (now - (cam->frame_epoch_start) <= 30.0);
 
-  if (recent_rollover) {
-    if ( ((long)frame->FrameCount) > (long)0xFF00 ) {
-      // These frames are probably coming in from before rollover.
-      backend_extras->last_framecount = ((backend_extras->frame_epoch-1)*(long)0xFFFF)+
-        ((long)frame->FrameCount);
-    } else {
-      backend_extras->last_framecount = ((backend_extras->frame_epoch)*(long)0xFFFF)+
-        ((long)frame->FrameCount);
-    }
-  } else {
-    backend_extras->last_framecount = ((backend_extras->frame_epoch)*(long)0xFFFF)+
-      ((long)frame->FrameCount);
-  }
+	// FrameCount can rollover, but we don't want that
+	if ( ((cam->last_framecount-1)%(long)(0xFFFF)) > (long)0xFF00) {
+		if ( ((long)frame->FrameCount) < (long)0xFF00 ) {
+			if (!recent_rollover) {
+				// wait 30 seconds before allowing rollover again
+				cam->frame_epoch++;
+				cam->frame_epoch_start = now;
+			}
+		}
+	}
 
-  if (getenv("PROSILICA_BACKEND_DEBUG")!=NULL) {
-    fprintf(stderr,"backend_extras->last_framecount %ld\n",backend_extras->last_framecount);
-  }
+	if (recent_rollover) {
+		if ( ((long)frame->FrameCount) > (long)0xFF00 ) {
+		  // These frames are probably coming in from before rollover.
+		  cam->last_framecount = ((cam->frame_epoch-1)*(long)0xFFFF)+
+			((long)frame->FrameCount);
+		} else {
+		  cam->last_framecount = ((cam->frame_epoch)*(long)0xFFFF)+
+			((long)frame->FrameCount);
+		}
+	} else {
+		cam->last_framecount = ((cam->frame_epoch)*(long)0xFFFF)+
+		  ((long)frame->FrameCount);
+	}
+
+	if (getenv("PROSILICA_BACKEND_DEBUG")!=NULL) {
+		fprintf(stderr,"cam->last_framecount %ld\n",cam->last_framecount);
+	}
 
 #ifndef CIPROSIL_TIME_HOST
-  u_int64_t ts_uint64;
-  ts_uint64 = (((u_int64_t)(frame->TimestampHi))<<32) + (frame->TimestampLo);
-  int64_t dif64; //tmp
-  dif64=ts_uint64-BACKEND_GLOBAL(prev_ts_uint64);
-  BACKEND_GLOBAL(prev_ts_uint64) = ts_uint64;
+	u_int64_t ts_uint64;
+	ts_uint64 = (((u_int64_t)(frame->TimestampHi))<<32) + (frame->TimestampLo);
+	int64_t dif64; //tmp
+	dif64=ts_uint64-BACKEND_GLOBAL(prev_ts_uint64);
+	BACKEND_GLOBAL(prev_ts_uint64) = ts_uint64;
 
-  MSG("got it                         (ts %lu)    (diff %ld)!",ts_uint64,dif64);
-  backend_extras->last_timestamp = ts_uint64;
+	MSG("got it                         (ts %lu)    (diff %ld)!",ts_uint64,dif64);
+	cam->last_timestamp = ts_uint64;
 #else // #ifndef CIPROSIL_TIME_HOST
-  backend_extras->last_timestamp = ciprosil_floattime();
+	cam->last_timestamp = ciprosil_floattime();
 #endif // #ifndef CIPROSIL_TIME_HOST
 
-  tPvErr oldstatus = frame->Status;
+	tPvErr oldstatus = frame->Status;
 
-  //if (requeue_int==0) {
-    // re-queue frame buffer
-    CIPVCHK(PvCaptureQueueFrame(*handle_ptr,frame,NULL));
-    //    printf("queued frame %d\n",int(frame->Context[0]));
-    BACKEND_GLOBAL(frames_ready_list_cam0)[BACKEND_GLOBAL(frames_ready_cam0_write_idx)] = frame;
-    BACKEND_GLOBAL(frames_ready_cam0_write_idx)++;
-    BACKEND_GLOBAL(frames_ready_cam0_num)++;
-    //}
+	//if (requeue_int==0) {
+	// re-queue frame buffer
+	CIPVCHK(PvCaptureQueueFrame(*handle_ptr,frame,NULL));
+	//    printf("queued frame %d\n",int(frame->Context[0]));
+	BACKEND_GLOBAL(frames_ready_list_cam0)[BACKEND_GLOBAL(frames_ready_cam0_write_idx)] = frame;
+	BACKEND_GLOBAL(frames_ready_cam0_write_idx)++;
+	BACKEND_GLOBAL(frames_ready_cam0_num)++;
+	//}
 
-  if(oldstatus == ePvErrDataMissing) {
-    BACKEND_GLOBAL(cam_iface_error) = CAM_IFACE_FRAME_DATA_MISSING_ERROR;
-    CAM_IFACE_ERROR_FORMAT("frame data missing");
-    return;
-  }
+	if(oldstatus == ePvErrDataMissing) {
+		BACKEND_GLOBAL(cam_iface_error) = CAM_IFACE_FRAME_DATA_MISSING_ERROR;
+		CAM_IFACE_ERROR_FORMAT("frame data missing");
+		return;
+	}
 
-  if(oldstatus == ePvErrDataLost) {
-    BACKEND_GLOBAL(cam_iface_error) = CAM_IFACE_FRAME_DATA_LOST_ERROR;
-    CAM_IFACE_ERROR_FORMAT("frame data lost");
-    return;
-  }
+	if(oldstatus == ePvErrDataLost) {
+		BACKEND_GLOBAL(cam_iface_error) = CAM_IFACE_FRAME_DATA_LOST_ERROR;
+		CAM_IFACE_ERROR_FORMAT("frame data lost");
+		return;
+	}
 }
 
-void CCprosil_point_next_frame_blocking( CCprosil *ccntxt, unsigned char **buf_ptr,
+
+void CCprosil_point_next_frame_blocking( CCprosil *cam, uint8_t **buf_ptr,
                                            float timeout){
-  CHECK_CC(ccntxt);
-  NOT_IMPLEMENTED;
-}
-void CCprosil_unpoint_frame( CCprosil *ccntxt){
-  CHECK_CC(ccntxt);
+  CHECK_CC(cam);
   NOT_IMPLEMENTED;
 }
 
-void CCprosil_get_last_timestamp( CCprosil *ccntxt, double* timestamp ) {
-  CHECK_CC(ccntxt);
-  cam_iface_backend_extras* backend_extras = (cam_iface_backend_extras*)(ccntxt->inherited.backend_extras);
+
+void CCprosil_unpoint_frame( CCprosil *cam){
+  CHECK_CC(cam);
+  NOT_IMPLEMENTED;
+}
+
+
+void CCprosil_get_last_timestamp( CCprosil *cam, double* timestamp ) {
+  CHECK_CC(cam);
 
 #ifndef CIPROSIL_TIME_HOST
-  *timestamp = (double)(backend_extras->last_timestamp) * backend_extras->timestamp_tick;
+  *timestamp = (double)(cam->last_timestamp) * cam->timestamp_tick;
 #else // #ifndef CIPROSIL_TIME_HOST
-  *timestamp = backend_extras->last_timestamp;
+  *timestamp = cam->last_timestamp;
 #endif // #ifndef CIPROSIL_TIME_HOST
 
 }
 
-void CCprosil_get_last_framenumber( CCprosil *ccntxt, unsigned long* framenumber ){
-  CHECK_CC(ccntxt);
-  cam_iface_backend_extras* backend_extras = (cam_iface_backend_extras*)(ccntxt->inherited.backend_extras);
-  *framenumber = (unsigned long)(backend_extras->last_framecount);
+
+void CCprosil_get_last_framenumber( CCprosil *cam, unsigned long* framenumber ){
+  CHECK_CC(cam);
+  *framenumber = (unsigned long)(cam->last_framecount);
   if (getenv("PROSILICA_BACKEND_DEBUG")!=NULL) {
     fprintf(stderr,"*framenumber %lu\n",*framenumber);
   }
 }
 
-void CCprosil_get_num_trigger_modes( CCprosil *ccntxt,
+
+void CCprosil_get_num_trigger_modes( CCprosil *cam,
                                        int *num_exposure_modes ) {
-  CHECK_CC(ccntxt);
+  CHECK_CC(cam);
   *num_exposure_modes = 5;
 }
 
-void CCprosil_get_trigger_mode_string( CCprosil *ccntxt,
+
+void CCprosil_get_trigger_mode_string( CCprosil *cam,
                                          int exposure_mode_number,
                                          char* exposure_mode_string, //output parameter
                                          int exposure_mode_string_maxlen) {
-  CHECK_CC(ccntxt);
+  CHECK_CC(cam);
   switch (exposure_mode_number) {
   case 0:
     cam_iface_snprintf(exposure_mode_string,exposure_mode_string_maxlen,"FreeRun");
@@ -1312,18 +1319,18 @@ void CCprosil_get_trigger_mode_string( CCprosil *ccntxt,
   }
 }
 
-void CCprosil_get_trigger_mode_number( CCprosil *ccntxt,
+
+void CCprosil_get_trigger_mode_number( CCprosil *cam,
                                          int *exposure_mode_number ) {
-  CHECK_CC(ccntxt);
-  cam_iface_backend_extras* backend_extras = (cam_iface_backend_extras*)(ccntxt->inherited.backend_extras);
-  *exposure_mode_number = (backend_extras->exposure_mode_number);
+  CHECK_CC(cam);
+  *exposure_mode_number = (cam->exposure_mode_number);
 }
 
-void CCprosil_set_trigger_mode_number( CCprosil *ccntxt,
+
+void CCprosil_set_trigger_mode_number( CCprosil *cam,
                                          int exposure_mode_number ) {
-  CHECK_CC(ccntxt);
-  cam_iface_backend_extras* backend_extras = (cam_iface_backend_extras*)(ccntxt->inherited.backend_extras);
-  tPvHandle* handle_ptr = (tPvHandle*)ccntxt->inherited.cam;
+  CHECK_CC(cam);
+  tPvHandle* handle_ptr = (tPvHandle*)cam->inherited.cam;
   switch (exposure_mode_number) {
   case 0:
     CIPVCHK(PvAttrEnumSet(*handle_ptr,"FrameStartTriggerMode","Freerun"));
@@ -1344,31 +1351,31 @@ void CCprosil_set_trigger_mode_number( CCprosil *ccntxt,
     CAM_IFACE_THROW_ERROR("exposure_mode_number invalid");
     break;
   }
-  backend_extras->exposure_mode_number = exposure_mode_number;
+  cam->exposure_mode_number = exposure_mode_number;
 }
 
-void CCprosil_get_frame_roi( CCprosil *ccntxt,
+
+void CCprosil_get_frame_roi( CCprosil *cam,
                              int *left, int *top, int* width, int* height ) {
   tPvUint32 l,t;
 
-  CHECK_CC(ccntxt);
-  tPvHandle* handle_ptr = (tPvHandle*)ccntxt->inherited.cam;
-  cam_iface_backend_extras* backend_extras = (cam_iface_backend_extras*)(ccntxt->inherited.backend_extras);
+  CHECK_CC(cam);
+  tPvHandle* handle_ptr = (tPvHandle*)cam->inherited.cam;
   CIPVCHK(PvAttrUint32Get(*handle_ptr,"RegionX",&l));
   CIPVCHK(PvAttrUint32Get(*handle_ptr,"RegionY",&t));
 
   *left = l;  // XXX cast error?
   *top = t;   // XXX cast error?
-  *width = backend_extras->current_width;
-  *height = backend_extras->current_height;
+  *width = cam->current_width;
+  *height = cam->current_height;
 }
 
-void CCprosil_set_frame_roi( CCprosil *ccntxt,
+
+void CCprosil_set_frame_roi( CCprosil *cam,
                              int left, int top, int width, int height ) {
   // XXX not yet done
-  CHECK_CC(ccntxt);
-  tPvHandle* handle_ptr = (tPvHandle*)ccntxt->inherited.cam;
-  cam_iface_backend_extras* backend_extras = (cam_iface_backend_extras*)(ccntxt->inherited.backend_extras);
+  CHECK_CC(cam);
+  tPvHandle* handle_ptr = (tPvHandle*)cam->inherited.cam;
 
   tPvUint32 l,t;
   tPvUint32 w,h;
@@ -1377,64 +1384,69 @@ void CCprosil_set_frame_roi( CCprosil *ccntxt,
 
   l=left;// XXX should check for int overflow...
   t=top;
-  _internal_stop_streaming( ccntxt, handle_ptr, backend_extras );INTERNAL_CHK();
+  _internal_stop_streaming( cam, handle_ptr);INTERNAL_CHK();
   CIPVCHK(PvAttrUint32Set(*handle_ptr,"Width",w));
-  backend_extras->current_width = width;
+  cam->current_width = width;
   CIPVCHK(PvAttrUint32Set(*handle_ptr,"Height",h));
-  backend_extras->current_height = height;
+  cam->current_height = height;
 
   unsigned long FrameSize = 0;
   CIPVCHK(PvAttrUint32Get(*handle_ptr,"TotalBytesPerFrame",&FrameSize));
-  backend_extras->buf_size = FrameSize; // XXX should check for int overflow...
+  cam->buf_size = FrameSize; // XXX should check for int overflow...
 
-  for (int i=0; i<backend_extras->num_buffers; i++) {
-    backend_extras->frames[i]->ImageBufferSize = backend_extras->buf_size;
+  for (int i=0; i<cam->num_buffers; i++) {
+    cam->frames[i]->ImageBufferSize = cam->buf_size;
   }
 
   CIPVCHK(PvAttrUint32Set(*handle_ptr,"RegionX",l));
   CIPVCHK(PvAttrUint32Set(*handle_ptr,"RegionY",t));
-  _internal_start_streaming( ccntxt, handle_ptr, backend_extras );INTERNAL_CHK();
+  _internal_start_streaming( cam, handle_ptr);INTERNAL_CHK();
 }
 
-void CCprosil_get_buffer_size( CCprosil *ccntxt,
+
+void CCprosil_get_buffer_size( CCprosil *cam,
                                  int *size) {
-  CHECK_CC(ccntxt);
-  cam_iface_backend_extras* backend_extras = (cam_iface_backend_extras*)(ccntxt->inherited.backend_extras);
-  *size = backend_extras->buf_size;
+  CHECK_CC(cam);
+  *size = cam->buf_size;
 }
 
-void CCprosil_get_framerate( CCprosil *ccntxt,
+
+void CCprosil_get_framerate( CCprosil *cam,
                                float *framerate ) {
-  CHECK_CC(ccntxt);
-  tPvHandle* handle_ptr = (tPvHandle*)ccntxt->inherited.cam;
+  CHECK_CC(cam);
+  tPvHandle* handle_ptr = (tPvHandle*)cam->inherited.cam;
   CIPVCHK(PvAttrFloat32Get(*handle_ptr,"FrameRate",framerate));
 }
 
-void CCprosil_set_framerate( CCprosil *ccntxt,
+
+void CCprosil_set_framerate( CCprosil *cam,
                                float framerate ) {
-  CHECK_CC(ccntxt);
+  CHECK_CC(cam);
   CAM_IFACE_THROW_ERROR("frame rate is not settable");
 }
 
-void CCprosil_get_max_frame_size( CCprosil *ccntxt,
+
+void CCprosil_get_max_frame_size( CCprosil *cam,
                                     int *width, int *height ){
-  CHECK_CC(ccntxt);
-  cam_iface_backend_extras* backend_extras = (cam_iface_backend_extras*)(ccntxt->inherited.backend_extras);
-  *width = backend_extras->max_width;
-  *height = backend_extras->max_height;
+  CHECK_CC(cam);
+  *width = cam->max_width;
+  *height = cam->max_height;
 }
 
-void CCprosil_get_num_framebuffers( CCprosil *ccntxt,
+
+void CCprosil_get_num_framebuffers( CCprosil *cam,
                                       int *num_framebuffers ) {
-  CHECK_CC(ccntxt);
-  cam_iface_backend_extras* backend_extras = (cam_iface_backend_extras*)(ccntxt->inherited.backend_extras);
-  *num_framebuffers = backend_extras->num_buffers;
+  CHECK_CC(cam);
+  *num_framebuffers = cam->num_buffers;
 }
 
-void CCprosil_set_num_framebuffers( CCprosil *ccntxt,
+
+void CCprosil_set_num_framebuffers( CCprosil *cam,
                                       int num_framebuffers ) {
-  CHECK_CC(ccntxt);
+  CHECK_CC(cam);
   NOT_IMPLEMENTED;
 }
 
 } // closes: extern "C"
+
+// vim: noet:ts=4:sw=4
