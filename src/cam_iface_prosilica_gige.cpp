@@ -1,4 +1,4 @@
-/*
+	/*
 Copyright (c) 2004-2009, California Institute of Technology. All
 rights reserved.
 
@@ -66,11 +66,18 @@ extern "C" {
 #define _STDCALL
 #endif
 
-#if 1
-# define MSG(...)
-#else
+#define PROSIL_DEBUG
+#ifdef PROSIL_DEBUG
 # define MSG(FMT,...) fprintf(stderr,"%s:%d: " FMT "\n",__func__,__LINE__,##__VA_ARGS__)
+#else
+# define MSG(...)
 #endif
+
+#define DMSG(FMT,...) \
+	if (getenv("PROSILICA_BACKEND_DEBUG")!=NULL) { \
+		fprintf(stderr,"%s:%d: " FMT "\n",__func__,__LINE__,##__VA_ARGS__); \ 
+	}
+
 
 #if defined(_LINUX) || defined(_QNX) || defined(__APPLE__)
 void Sleep(unsigned int time){
@@ -523,7 +530,7 @@ const char *BACKEND_GLOBAL(pv_error_strings)[PV_ERROR_NUM] = {
   }
 #endif
 
-void _internal_start_streaming( CCprosil * cam,
+static void _internal_start_streaming( CCprosil * cam,
                                 tPvHandle* handle_ptr
 ){
 	// modeled after CFinderWindow::OnStart() in
@@ -549,6 +556,8 @@ void _internal_start_streaming( CCprosil * cam,
 		cam->frames[i]->ImageBufferSize = cam->buf_size;
 	}
 
+	/* queue all frames -- frames already queued are probably collected without
+	changes to settings that might have been requested in the meantime */
 	for (int i=0; i<cam->num_buffers; i++) {
 		CIPVCHK(PvCaptureQueueFrame(*handle_ptr,cam->frames[i],NULL));
 		BACKEND_GLOBAL(frames_ready_list_cam0)[BACKEND_GLOBAL(frames_ready_cam0_write_idx)] = cam->frames[i];
@@ -559,7 +568,7 @@ void _internal_start_streaming( CCprosil * cam,
 	CIPVCHK(PvCommandRun(*handle_ptr,"AcquisitionStart"));
 }
 
-void _internal_stop_streaming( CCprosil * cam,
+static void _internal_stop_streaming( CCprosil * cam,
                                tPvHandle* handle_ptr
 ){
 	// modeled after CFinderWindow::OnStop() in
@@ -582,7 +591,7 @@ void _internal_stop_streaming( CCprosil * cam,
 		CIPVCHK(PvCaptureQueueClear(iHandle));
 	} else {
 		// Comment from Prosilica code:
-		// then dequeue all the frame still in the queue
+		// then dequeue all the frames still in the queue
 		// in case there is any left in it and that the camera
 		// was unplugged (we will ignore any error as the
 		// capture was stopped anyway)
@@ -729,8 +738,8 @@ void BACKEND_METHOD(cam_iface_get_mode_string)(int device_number,
 	);
 }
 
-
 cam_iface_constructor_func_t BACKEND_METHOD(cam_iface_get_constructor_func)(int device_number) {
+  /* FIXME this part of the API seems stupid */
   return (CamContext* (*)(int, int, int, const char*))CCprosil_construct;
 }
 
@@ -745,6 +754,9 @@ CCprosil* CCprosil_construct( int device_number, int NumImageBuffers,
   return cam;
 }
 
+/*------------------------------------------------------------------------------
+  CONSTRUCTOR AND DESTRUCTOR
+*/
 
 void CCprosil_CCprosil(CCprosil * cam, int device_number, int NumImageBuffers,
                         int mode_number,const char *interface
@@ -818,7 +830,7 @@ void CCprosil_CCprosil(CCprosil * cam, int device_number, int NumImageBuffers,
 
 	// code to adjust packet size, taken from SampleViewer -- JP May 2009.
 	if(!BACKEND_METHOD(cam_iface_have_error)()){
-		MSG("Setting PacketSize automatically...");
+		MSG("Setting PacketSize automatically, according to network capacity...");
 		tPvUint32 lMaxSize = 8228;
 		// get the last packet size set on the camera
 		CIPVCHK(PvAttrUint32Get(*handle_ptr,"PacketSize",&lMaxSize));
@@ -887,11 +899,15 @@ void CCprosil_CCprosil(CCprosil * cam, int device_number, int NumImageBuffers,
 
 	cam->malloced_buf_size = (MaxWidth*MaxHeight*cam->inherited.depth + 7)/8;
 
-	MSG("malloc = %d x %d x %d / 8 bytes = %d",MaxWidth,MaxHeight,cam->inherited.depth,cam->malloced_buf_size);
+	MSG("memory allocation for each buffer: W %d x H %d x (%d bits/pixel) / (8 bits/byte) = %d bytes"
+		,MaxWidth,MaxHeight,cam->inherited.depth,cam->malloced_buf_size
+	);
 
 	if(NumImageBuffers>PV_MAX_NUM_BUFFERS) {
 		CAM_IFACE_THROW_ERROR("requested too many buffers");
 	}
+
+	MSG("num_buffers = %d",NumImageBuffers);
 
 	// allocate image buffers
 	cam->num_buffers = NumImageBuffers;
@@ -928,7 +944,8 @@ void CCprosil_close(CCprosil *cam) {
 	if(!cam){CAM_IFACE_THROW_ERROR("no CCprosil specified (NULL argument)");}
 	tPvHandle* handle_ptr = (tPvHandle*)cam->inherited.cam;
 
-	_internal_stop_streaming(cam,handle_ptr);INTERNAL_CHK();
+	_internal_stop_streaming(cam,handle_ptr);
+	INTERNAL_CHK();
 
 	if(cam->frames!=NULL){
 		//CIPVCHK(PvCaptureQueueClear(*handle_ptr));
@@ -954,16 +971,21 @@ void CCprosil_close(CCprosil *cam) {
 void CCprosil_start_camera( CCprosil *cam ){
 	CHECK_CC(cam);
 	tPvHandle* handle_ptr = (tPvHandle*)cam->inherited.cam;
-	_internal_start_streaming(cam,handle_ptr);INTERNAL_CHK();
+	_internal_start_streaming(cam,handle_ptr);
+	INTERNAL_CHK();
 }
 
 
 void CCprosil_stop_camera( CCprosil *cam ){
 	CHECK_CC(cam);
 	tPvHandle* handle_ptr = (tPvHandle*)cam->inherited.cam;
-	_internal_stop_streaming(cam,handle_ptr);INTERNAL_CHK();
+	_internal_stop_streaming(cam,handle_ptr);
+	INTERNAL_CHK();
 }
 
+/*------------------------------------------------------------------------------
+  CAMERA PROPERTY GET/SET
+*/
 
 void CCprosil_get_num_camera_properties(CCprosil *cam, int* num_properties){
 	CHECK_CC(cam);
@@ -1118,6 +1140,9 @@ void CCprosil_set_camera_property(CCprosil *cam
 	return;
 }
 
+/*------------------------------------------------------------------------------
+  FRAME GRABBING
+*/
 
 void CCprosil_grab_next_frame_blocking(CCprosil *cam
 		, uint8_t *out_bytes, float timeout
@@ -1145,20 +1170,29 @@ void CCprosil_grab_next_frame_blocking_with_stride( CCprosil *cam
 		pvTimeout = (unsigned long)ceilf(timeout*1000.0f); // convert to msec
 	}
 
+	// frames_ready_cam0_read_idx is the index of the first queued frame
 	frame = BACKEND_GLOBAL(frames_ready_list_cam0)[BACKEND_GLOBAL(frames_ready_cam0_read_idx)];
+	if(frame==NULL) CAM_IFACE_THROW_ERROR("internal cam_iface error: frame not allocated");
 
-	if (frame==NULL) CAM_IFACE_THROW_ERROR("internal cam_iface error: frame not allocated");
-
+	// wait to grab the full frame
 	CIPVCHK(PvCaptureWaitForFrameDone(*handle_ptr,frame,pvTimeout));
 
-	BACKEND_GLOBAL(frames_ready_cam0_read_idx)++;
-	BACKEND_GLOBAL(frames_ready_cam0_num)--;
-
+	// copy the frame to our 'out_bytes' array
 	size_t wb = frame->Width;
 	int height = frame->Height;
+	
+	if(frame->BitDepth != cam->inherited.depth){
+		MSG("frame bitdepth is not the expected camera bitdepth");
+	}
 
 	unsigned stride = (wb * cam->inherited.depth + 7) / 8;
 	if(stride0 == stride){ // same stride
+		memcpy(out_bytes, frame->ImageBuffer, frame->ImageSize);
+	}else{
+		MSG("ERROR unexpected stride for out_bytes");
+	}
+
+#if 0
 		MSG("stride0 = %u, stride = %u", stride0, stride);
 		for (int row=0;row<height;row++) {
 			memcpy((void*)(
@@ -1167,11 +1201,16 @@ void CCprosil_grab_next_frame_blocking_with_stride( CCprosil *cam
 				stride //size
 			);
 		}
+	}else{
+		MSG("error? stride is not matching...???")
 	}
+#endif
 
-	if (getenv("PROSILICA_BACKEND_DEBUG")!=NULL) {
-		fprintf(stderr,"frame->FrameCount %lu\n",frame->FrameCount);
-	}
+	// increment the frame counter
+	BACKEND_GLOBAL(frames_ready_cam0_read_idx)++;
+	BACKEND_GLOBAL(frames_ready_cam0_num)--;
+	
+	DMSG("frame->FrameCount %lu",frame->FrameCount);
 
 	now = ciprosil_floattime();
 	recent_rollover = (now - (cam->frame_epoch_start) <= 30.0);
@@ -1201,33 +1240,27 @@ void CCprosil_grab_next_frame_blocking_with_stride( CCprosil *cam
 		  ((long)frame->FrameCount);
 	}
 
-	if (getenv("PROSILICA_BACKEND_DEBUG")!=NULL) {
-		fprintf(stderr,"cam->last_framecount %ld\n",cam->last_framecount);
-	}
+	DMSG("cam->last_framecount %ld",cam->last_framecount);
 
 #ifndef CIPROSIL_TIME_HOST
 	u_int64_t ts_uint64;
 	ts_uint64 = (((u_int64_t)(frame->TimestampHi))<<32) + (frame->TimestampLo);
-	int64_t dif64; //tmp
-	dif64=ts_uint64-BACKEND_GLOBAL(prev_ts_uint64);
+	int64_t dif64;
+	dif64 = ts_uint64 - BACKEND_GLOBAL(prev_ts_uint64);
 	BACKEND_GLOBAL(prev_ts_uint64) = ts_uint64;
-
 	MSG("got it                         (ts %lu)    (diff %ld)!",ts_uint64,dif64);
 	cam->last_timestamp = ts_uint64;
-#else // #ifndef CIPROSIL_TIME_HOST
+#else
 	cam->last_timestamp = ciprosil_floattime();
-#endif // #ifndef CIPROSIL_TIME_HOST
+#endif
 
 	tPvErr oldstatus = frame->Status;
 
-	//if (requeue_int==0) {
 	// re-queue frame buffer
 	CIPVCHK(PvCaptureQueueFrame(*handle_ptr,frame,NULL));
-	//    printf("queued frame %d\n",int(frame->Context[0]));
 	BACKEND_GLOBAL(frames_ready_list_cam0)[BACKEND_GLOBAL(frames_ready_cam0_write_idx)] = frame;
 	BACKEND_GLOBAL(frames_ready_cam0_write_idx)++;
 	BACKEND_GLOBAL(frames_ready_cam0_num)++;
-	//}
 
 	if(oldstatus == ePvErrDataMissing) {
 		BACKEND_GLOBAL(cam_iface_error) = CAM_IFACE_FRAME_DATA_MISSING_ERROR;
@@ -1268,18 +1301,29 @@ void CCprosil_get_last_timestamp(CCprosil *cam, double* timestamp){
 }
 
 
-void CCprosil_get_last_framenumber( CCprosil *cam, unsigned long* framenumber ){
+void CCprosil_get_last_framenumber( CCprosil *cam, unsigned long* framenumber){
 	CHECK_CC(cam);
 	*framenumber = (unsigned long)(cam->last_framecount);
-	if(getenv("PROSILICA_BACKEND_DEBUG")!=NULL){
-		fprintf(stderr,"*framenumber %lu\n",*framenumber);
-	}
+	DMSG("*framenumber %lu",*framenumber);
 }
 
+/*------------------------------------------------------------------------------
+  EXPOSURE/TRIGGER MODES
+*/
 
-void CCprosil_get_num_trigger_modes(CCprosil *cam, int *num_exposure_modes){
+static char *exposure_modes[] = {
+	"Freerun"
+	,"SyncIn1"
+	,"SyncIn2"
+	,"SyncIn3"
+	,"SyncIn4"
+};
+static unsigned num_exposure_modes = sizeof(exposure_modes)/sizeof(char *);
+
+
+void CCprosil_get_num_trigger_modes(CCprosil *cam, int *n_exposure_modes){
 	CHECK_CC(cam);
-	*num_exposure_modes = 5;
+	*n_exposure_modes = num_exposure_modes;
 }
 
 
@@ -1288,27 +1332,11 @@ void CCprosil_get_trigger_mode_string( CCprosil *cam
 		,int exposure_mode_string_maxlen
 ){
 	CHECK_CC(cam);
-	/* FIXME this code is stupid. use an array. */
-	switch(exposure_mode_number){
-	case 0:
-		cam_iface_snprintf(exposure_mode_string,exposure_mode_string_maxlen,"FreeRun");
-		break;
-	case 1:
-		cam_iface_snprintf(exposure_mode_string,exposure_mode_string_maxlen,"SyncIn1");
-		break;
-	case 2:
-		cam_iface_snprintf(exposure_mode_string,exposure_mode_string_maxlen,"SyncIn2");
-		break;
-	case 3:
-		cam_iface_snprintf(exposure_mode_string,exposure_mode_string_maxlen,"SyncIn3");
-		break;
-	case 4:
-		cam_iface_snprintf(exposure_mode_string,exposure_mode_string_maxlen,"SyncIn4");
-		break;
-	default:
+	if(exposure_mode_number >= 0 && exposure_mode_number <  num_exposure_modes){
+		cam_iface_snprintf(exposure_mode_string,exposure_mode_string_maxlen,"%s",exposure_modes[exposure_mode_number]);
+	}else{
 		BACKEND_GLOBAL(cam_iface_error) = -1;
 		CAM_IFACE_ERROR_FORMAT("exposure_mode_number invalid");
-		return;
 	}
 }
 
@@ -1322,30 +1350,19 @@ void CCprosil_get_trigger_mode_number(CCprosil *cam, int *exposure_mode_number){
 void CCprosil_set_trigger_mode_number(CCprosil *cam, int exposure_mode_number){
 	CHECK_CC(cam);
 	tPvHandle* handle_ptr = (tPvHandle*)cam->inherited.cam;
-	/* again, FIXME, use an array */
-	switch(exposure_mode_number){
-	case 0:
-		CIPVCHK(PvAttrEnumSet(*handle_ptr,"FrameStartTriggerMode","Freerun"));
-		break;
-	case 1:
-		CIPVCHK(PvAttrEnumSet(*handle_ptr,"FrameStartTriggerMode","SyncIn1"));
-		break;
-	case 2:
-		CIPVCHK(PvAttrEnumSet(*handle_ptr,"FrameStartTriggerMode","SyncIn2"));
-		break;
-	case 3:
-		CIPVCHK(PvAttrEnumSet(*handle_ptr,"FrameStartTriggerMode","SyncIn3"));
-		break;
-	case 4:
-		CIPVCHK(PvAttrEnumSet(*handle_ptr,"FrameStartTriggerMode","SyncIn4"));
-		break;
-	default:
+	if(exposure_mode_number >= 0 && exposure_mode_number <  num_exposure_modes){
+		char *mode = exposure_modes[exposure_mode_number];
+		MSG("setting trigger mode to '%s'",mode);
+		CIPVCHK(PvAttrEnumSet(*handle_ptr,"FrameStartTriggerMode",mode));
+		cam->exposure_mode_number = exposure_mode_number;
+	}else{
 		CAM_IFACE_THROW_ERROR("exposure_mode_number invalid");
-		break;
-	}
-	cam->exposure_mode_number = exposure_mode_number;
+	}		
 }
 
+/*------------------------------------------------------------------------------
+  REGION OF INTEREST
+*/
 
 void CCprosil_get_frame_roi(CCprosil *cam
 		, int *left, int *top, int* width, int* height
@@ -1378,7 +1395,8 @@ void CCprosil_set_frame_roi(CCprosil *cam
 
 	l=left;// XXX should check for int overflow...
 	t=top;
-	_internal_stop_streaming( cam, handle_ptr);INTERNAL_CHK();
+	_internal_stop_streaming( cam, handle_ptr);
+	INTERNAL_CHK();
 	CIPVCHK(PvAttrUint32Set(*handle_ptr,"Width",w));
 	cam->current_width = width;
 	CIPVCHK(PvAttrUint32Set(*handle_ptr,"Height",h));
@@ -1394,9 +1412,13 @@ void CCprosil_set_frame_roi(CCprosil *cam
 
 	CIPVCHK(PvAttrUint32Set(*handle_ptr,"RegionX",l));
 	CIPVCHK(PvAttrUint32Set(*handle_ptr,"RegionY",t));
-	_internal_start_streaming( cam, handle_ptr);INTERNAL_CHK();
+	_internal_start_streaming( cam, handle_ptr);
+	INTERNAL_CHK();
 }
 
+/*------------------------------------------------------------------------------
+  FRAME BUFFERS AND FRAME SIZE
+*/
 
 void CCprosil_get_buffer_size(CCprosil *cam, int *size){
 	CHECK_CC(cam);
@@ -1413,6 +1435,8 @@ void CCprosil_get_framerate(CCprosil *cam, float *framerate){
 
 void CCprosil_set_framerate( CCprosil *cam, float framerate){
 	CHECK_CC(cam);
+	/* FIXME we *can* use the 'FrameRate' CamAttr to set the framerate,
+	providing FrameStartTriggerMode is set to FixedRate */
 	CAM_IFACE_THROW_ERROR("frame rate is not settable");
 }
 
