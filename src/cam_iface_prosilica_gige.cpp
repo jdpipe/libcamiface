@@ -66,7 +66,7 @@ extern "C" {
 #define _STDCALL
 #endif
 
-#define PROSIL_DEBUG
+//#define PROSIL_DEBUG
 #ifdef PROSIL_DEBUG
 # define MSG(FMT,...) fprintf(stderr,"%s:%d: " FMT "\n",__func__,__LINE__,##__VA_ARGS__)
 #else
